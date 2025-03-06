@@ -83,86 +83,76 @@ par(mfrow=c(1,2))  # Set up a 1x2 plotting area
 hist(boot_means_fish, main="Bootstrap Means of Fish", 
      xlab="Mean Fish Density", col="lightblue", breaks=30)
 abline(v=mean_fish, col="red", lwd=2)
-text(x=8.8, y=95, 
-     labels=paste("Mean =", round(mean_fish, 2)), col="red", pos=4)
+#text(x=8.8, y=95, 
+    # labels=paste("Mean =", round(mean_fish, 2)), col="red", pos=4)
 
 hist(boot_means_copepod, main="Bootstrap Means of Copepod", 
      xlab="Mean Copepod Density", col="lightgreen", breaks=30)
 abline(v=mean_copepod, col="red", lwd=2)
-text(x=4.4, y=110, 
-     labels=paste("Mean =", round(mean_copepod, 2)), col="red", pos=4)
+#text(x=4.4, y=110, 
+    # labels=paste("Mean =", round(mean_copepod, 2)), col="red", pos=4)
 ```
-
-```{r}
-
-
-# 產生隨機數據
-n <- 100
-fish <- rnorm(n, mean = 50, sd = 10)  # 魚的密度
-copepod <- rnorm(n, mean = 30, sd = 5)  # 橈足類密度
-
-# 1. 正規理論計算均值與標準誤
-mean_fish <- mean(fish)
-se_fish <- sd(fish) / sqrt(n)
-
-mean_copepod <- mean(copepod)
-se_copepod <- sd(copepod) / sqrt(n)
-
-cat("Fish Mean:", mean_fish, "SE:", se_fish, "\n")
-cat("Copepod Mean:", mean_copepod, "SE:", se_copepod, "\n")
-```
-
 
 2. Compute the median and bootstrapped SE(median) for the fish and copepod densities. 
 Plot the histogram of bootstrapped medians with bootstrap 1000 times. 
+
 ```{r}
-# 2. Bootstrap 計算均值的標準誤
-B <- 1000  # bootstrap 次數
-boot_means_fish <- numeric(B)
-boot_means_copepod <- numeric(B)
+# Compute the median of the original data
+median_fish <- median(fish)
+median_copepod <- median(copepod)
 
-for (i in 1:B) {
-  sample_indices <- floor(runif(n, min = 1, max = n+1))  # 手動重抽樣
-  boot_means_fish[i] <- mean(fish[sample_indices])
-  boot_means_copepod[i] <- mean(copepod[sample_indices])
-}
+# Print original median values
+print("Original Median Values:")
+print(paste("Fish: Median =", median_fish))
+print(paste("Copepod: Median =", median_copepod))
+```
+```{r}
+# Set bootstrap parameters
+B <- 1000  # Number of bootstrap iterations
+n <- length(fish)  # Sample size
 
-se_boot_fish <- sd(boot_means_fish)
-se_boot_copepod <- sd(boot_means_copepod)
-
-cat("Bootstrapped Fish SE:", se_boot_fish, "\n")
-cat("Bootstrapped Copepod SE:", se_boot_copepod, "\n")
-
-# 繪製 Bootstrapped Means 直方圖
-hist(boot_means_fish, breaks = 30, col = "skyblue", main = "Bootstrap Fish Means")
-hist(boot_means_copepod, breaks = 30, col = "lightgreen", main = "Bootstrap Copepod Means")
-
-# 3. Bootstrap 計算中位數的標準誤
+# Create vectors to store bootstrap results
 boot_medians_fish <- numeric(B)
 boot_medians_copepod <- numeric(B)
 
+# Perform bootstrap resampling without using sample()
 for (i in 1:B) {
-  sample_indices <- floor(runif(n, min = 1, max = n+1))
-  boot_medians_fish[i] <- median(fish[sample_indices])
-  boot_medians_copepod[i] <- median(copepod[sample_indices])
+  sample_indices <- floor(runif(n, min = 1, max = n + 1))  # Generate random indices between 1 and n
+  boot_medians_fish[i] <- median(fish[sample_indices])  # Compute median for resampled fish data, similar to Q.1
+  boot_medians_copepod[i] <- median(copepod[sample_indices])  # Compute median for resampled copepod data
 }
 
-se_median_fish <- sd(boot_medians_fish)
-se_median_copepod <- sd(boot_medians_copepod)
+# Compute bootstrap standard errors (SE) 
+se_boot_median_fish <- sd(boot_medians_fish)
+se_boot_median_copepod <- sd(boot_medians_copepod)
 
-cat("Bootstrapped Fish SE (Median):", se_median_fish, "\n")
-cat("Bootstrapped Copepod SE (Median):", se_median_copepod, "\n")
+# Print the results
+print("Bootstrap estimates for Median:")
+print(paste("Fish: Median =", median_fish, "SE =", se_boot_median_fish))
+print(paste("Copepod: Median =", median_copepod, "SE =", se_boot_median_copepod))
+
+```
+Plot histograms of bootstrapped medians
+```{r}
+par(mfrow=c(1,2))  # Set up a 1x2 plotting area
+
+# Histogram for fish bootstrap medians
+hist(boot_medians_fish, main="Bootstrap Medians of Fish", 
+     xlab="Median Fish Density", col="lightblue", breaks=30)
+abline(v=median_fish, col="red", lwd=2)
+
+# Histogram for copepod bootstrap medians
+hist(boot_medians_copepod, main="Bootstrap Medians of Copepod", 
+     xlab="Median Copepod Density", col="lightgreen", breaks=30)
+abline(v=median_copepod, col="red", lwd=2)
 ```
 
 3. Plot fish (dependent) v.s copepod (independent) and the regression line. 
 Compute the regression coefficients for fish = b0+b1*copepod and bootstrapped SE(b0) and SE(b1). 
 Plot the histogram of bootstrapped b0 and b1 with bootstrap 1000 times. 
 
+待刪
 ```{r}
-# 繪製 Bootstrapped Medians 直方圖
-hist(boot_medians_fish, breaks = 30, col = "skyblue", main = "Bootstrap Fish Medians")
-hist(boot_medians_copepod, breaks = 30, col = "lightgreen", main = "Bootstrap Copepod Medians")
-
 # 4. 線性回歸與 Bootstrap 估計標準誤
 reg <- lm(fish ~ copepod)
 b0_hat <- coef(reg)[1]
@@ -194,4 +184,66 @@ hist(boot_b1, breaks = 30, col = "purple", main = "Bootstrap b1")
 
 
 ```
+night test
+3. Plot fish (dependent) v.s copepod (independent) and the regression line. 
+Compute the regression coefficients for fish = b0+b1*copepod and bootstrapped SE(b0) and SE(b1). 
+Plot the histogram of bootstrapped b0 and b1 with bootstrap 1000 times. 
+```{r}
+# Compute linear regression coefficients
+model <- lm(fish ~ copepod)  #lm: linear model, with fish as the dependent variable and copepod as the independent variable
+b0 <- coef(model)[1]  # Extract the intercept (b0) from the regression model
+b1 <- coef(model)[2]  # Extract the slope (b1) from the regression model
+
+
+print("Original Regression Coefficients:")
+print(paste("b0 =", b0))
+print(paste("b1 =", b1))
+```
+bootstrapped SE(b0) and SE(b1)
+```{r}
+# Bootstrap settings
+B <- 1000
+n <- length(fish)
+
+boot_b0 <- numeric(B)
+boot_b1 <- numeric(B)
+
+# Bootstrap loop
+for (i in 1:B) {
+  sample_indices <- floor(runif(n, min = 1, max = n + 1)) # Generate n random indices for sampling
+  boot_model <- lm(fish[sample_indices] ~ copepod[sample_indices]) # Create a new linear regression model with bootstrapped samples
+  boot_b0[i] <- coef(boot_model)[1] #accumulate the results of bootstrap regression coefficients into vectors boot_b0 & b1
+  boot_b1[i] <- coef(boot_model)[2]
+}
+
+# Compute bootstrap SE
+se_boot_b0 <- sd(boot_b0)
+se_boot_b1 <- sd(boot_b1)
+
+print("Bootstrap estimates for Regression Coefficients:")
+print(paste("b0: SE =", se_boot_b0))
+print(paste("b1: SE =", se_boot_b1))
+```
+
+
+```{r}
+# Plot regression line
+plot(copepod, fish, main = "Regression: Fish vs. Copepod", 
+     xlab = "Copepod Density", ylab = "Fish Density", col = "brown", pch = 16)
+abline(b0, b1, col = "skyblue", lwd = 2)
+
+# Plot histograms of bootstrapped coefficients
+par(mfrow = c(1, 2))
+
+hist(boot_b0, main = "Bootstrap Distribution of b0", 
+     xlab = "b0", col = "lightblue", breaks = 30)
+abline(v = b0, col = "red", lwd = 2)
+
+hist(boot_b1, main = "Bootstrap Distribution of b1", 
+     xlab = "b1", col = "lightgreen", breaks = 30)
+abline(v = b1, col = "red", lwd = 2)
+
+```
+
+
 
