@@ -1,0 +1,197 @@
+---
+title: "HW3"
+author: "Annie"
+date: "2025-03-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+to do:
+1.確認fish copepod長度相同
+2.dataset
+
+NOTE: You are NOT allowed to use the built-in bootstrap or sampling functions in Matlab or R. 
+You can use some basic functions such as find, mean, median, var, sum, max, min, ceil, floor, round, sort, length, size, plot, hist and all matrix manipulation functions (e.g. reshape, ones, zeros). 
+You can use “print” to save figures. [hint: use “rand” to generate the bootstrapped samples. When doing regression, sample with pairs (i.e. (X1,Y1), (X1,Y1),(X3,Y3),……]
+
+1. Compute the mean and SE(mean) for the fish and copepod densities (assuming all data points are independent) respectively, using both normal theory and non-parametric bootstrap. 
+Plot the histogram of bootstrapped means with bootstrap 1000 times. (Normal theory simply means using the standard formula to estimate SE.) 
+
+read data
+```{r}
+fish <- rnorm(30, mean = 10, sd = 2)
+copepod <- rnorm(30, mean = 5, sd = 1)
+```
+
+using normal theory to compute the SE for fish & copepod densities
+```{r}
+mean_fish <- mean(fish)
+se_fish <- sd(fish) / sqrt(length(fish))
+
+mean_copepod <- mean(copepod)
+se_copepod <- sd(copepod) / sqrt(length(copepod)) #SE = SD / √n
+```
+
+shows the result
+```{r}
+print(paste("Normal theory estimates:"))
+print(paste("Fish: Mean =", mean_fish, "SE =", se_fish))
+print(paste("Copepod: Mean =", mean_copepod, "SE =", se_copepod))
+```
+
+using bootstrap to compute the SE for fish & copepod densities
+creates a numeric vector of length 1000
+```{r}
+B <- 1000  
+boot_means_fish <- numeric(B)
+boot_means_copepod <- numeric(B)
+n <- length(fish)
+```
+
+using bootstrap to compute the SE for fish & copepod densities
+```{r}
+B <- 1000  # Number of bootstrap iterations
+n <- length(fish)  # Length of the fish dataset (how many samples)
+boot_means_fish <- numeric(B)  #creates a numeric vector length 1000, to store the mean value after each bootstrap resampling
+boot_means_copepod <- numeric(B) 
+
+for (i in 1:B) {
+  # Generate n random indices between 1 and n using runif
+  sample_indices <- floor(runif(n, min = 1, max = n + 1))  # runif()-> generate random indices from 1 to n(length of dataset)
+  boot_means_fish[i] <- mean(fish[sample_indices])  # Calculate mean of the fish sample, store it in boot_means_fish[i] vector
+  boot_means_copepod[i] <- mean(copepod[sample_indices])  # same for copepod
+}
+
+# Calculate the standard errors
+se_boot_fish <- sd(boot_means_fish)
+se_boot_copepod <- sd(boot_means_copepod)
+
+# Print the results
+print("Bootstrap estimates:")
+print(paste("Fish: SE =", se_boot_fish))
+print(paste("Copepod: SE =", se_boot_copepod))
+
+
+```
+Plot the histogram of bootstrapped means 
+```{r}
+par(mfrow=c(1,2))  # Set up a 1x2 plotting area
+
+
+hist(boot_means_fish, main="Bootstrap Means of Fish", 
+     xlab="Mean Fish Density", col="lightblue", breaks=30)
+abline(v=mean_fish, col="red", lwd=2)
+text(x=8.8, y=95, 
+     labels=paste("Mean =", round(mean_fish, 2)), col="red", pos=4)
+
+hist(boot_means_copepod, main="Bootstrap Means of Copepod", 
+     xlab="Mean Copepod Density", col="lightgreen", breaks=30)
+abline(v=mean_copepod, col="red", lwd=2)
+text(x=4.4, y=110, 
+     labels=paste("Mean =", round(mean_copepod, 2)), col="red", pos=4)
+```
+
+```{r}
+
+
+# 產生隨機數據
+n <- 100
+fish <- rnorm(n, mean = 50, sd = 10)  # 魚的密度
+copepod <- rnorm(n, mean = 30, sd = 5)  # 橈足類密度
+
+# 1. 正規理論計算均值與標準誤
+mean_fish <- mean(fish)
+se_fish <- sd(fish) / sqrt(n)
+
+mean_copepod <- mean(copepod)
+se_copepod <- sd(copepod) / sqrt(n)
+
+cat("Fish Mean:", mean_fish, "SE:", se_fish, "\n")
+cat("Copepod Mean:", mean_copepod, "SE:", se_copepod, "\n")
+```
+
+
+2. Compute the median and bootstrapped SE(median) for the fish and copepod densities. 
+Plot the histogram of bootstrapped medians with bootstrap 1000 times. 
+```{r}
+# 2. Bootstrap 計算均值的標準誤
+B <- 1000  # bootstrap 次數
+boot_means_fish <- numeric(B)
+boot_means_copepod <- numeric(B)
+
+for (i in 1:B) {
+  sample_indices <- floor(runif(n, min = 1, max = n+1))  # 手動重抽樣
+  boot_means_fish[i] <- mean(fish[sample_indices])
+  boot_means_copepod[i] <- mean(copepod[sample_indices])
+}
+
+se_boot_fish <- sd(boot_means_fish)
+se_boot_copepod <- sd(boot_means_copepod)
+
+cat("Bootstrapped Fish SE:", se_boot_fish, "\n")
+cat("Bootstrapped Copepod SE:", se_boot_copepod, "\n")
+
+# 繪製 Bootstrapped Means 直方圖
+hist(boot_means_fish, breaks = 30, col = "skyblue", main = "Bootstrap Fish Means")
+hist(boot_means_copepod, breaks = 30, col = "lightgreen", main = "Bootstrap Copepod Means")
+
+# 3. Bootstrap 計算中位數的標準誤
+boot_medians_fish <- numeric(B)
+boot_medians_copepod <- numeric(B)
+
+for (i in 1:B) {
+  sample_indices <- floor(runif(n, min = 1, max = n+1))
+  boot_medians_fish[i] <- median(fish[sample_indices])
+  boot_medians_copepod[i] <- median(copepod[sample_indices])
+}
+
+se_median_fish <- sd(boot_medians_fish)
+se_median_copepod <- sd(boot_medians_copepod)
+
+cat("Bootstrapped Fish SE (Median):", se_median_fish, "\n")
+cat("Bootstrapped Copepod SE (Median):", se_median_copepod, "\n")
+```
+
+3. Plot fish (dependent) v.s copepod (independent) and the regression line. 
+Compute the regression coefficients for fish = b0+b1*copepod and bootstrapped SE(b0) and SE(b1). 
+Plot the histogram of bootstrapped b0 and b1 with bootstrap 1000 times. 
+
+```{r}
+# 繪製 Bootstrapped Medians 直方圖
+hist(boot_medians_fish, breaks = 30, col = "skyblue", main = "Bootstrap Fish Medians")
+hist(boot_medians_copepod, breaks = 30, col = "lightgreen", main = "Bootstrap Copepod Medians")
+
+# 4. 線性回歸與 Bootstrap 估計標準誤
+reg <- lm(fish ~ copepod)
+b0_hat <- coef(reg)[1]
+b1_hat <- coef(reg)[2]
+
+boot_b0 <- numeric(B)
+boot_b1 <- numeric(B)
+
+for (i in 1:B) {
+  sample_indices <- floor(runif(n, min = 1, max = n+1))
+  boot_reg <- lm(fish[sample_indices] ~ copepod[sample_indices])
+  boot_b0[i] <- coef(boot_reg)[1]
+  boot_b1[i] <- coef(boot_reg)[2]
+}
+
+se_b0 <- sd(boot_b0)
+se_b1 <- sd(boot_b1)
+
+cat("Regression b0:", b0_hat, "SE:", se_b0, "\n")
+cat("Regression b1:", b1_hat, "SE:", se_b1, "\n")
+
+# 繪製回歸線
+plot(copepod, fish, main = "Fish vs. Copepod", xlab = "Copepod Density", ylab = "Fish Density", pch = 16)
+abline(reg, col = "red", lwd = 2)
+
+# 繪製 Bootstrapped b0 和 b1 直方圖
+hist(boot_b0, breaks = 30, col = "orange", main = "Bootstrap b0")
+hist(boot_b1, breaks = 30, col = "purple", main = "Bootstrap b1")
+
+
+```
+
