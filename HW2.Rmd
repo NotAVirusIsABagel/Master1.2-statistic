@@ -1,0 +1,67 @@
+---
+title: "HW2"
+author: "Annie"
+date: "2025-02-27"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Homework2
+
+1a. Generate 10000 random numbers from Gaussian distribution with mean=20 and variance =10, and plot the distribution.
+```{r}
+set.seed(123) #not necessary here#ensure that the sequence of random numbers generated is always the same 
+gaussian_numbers <- rnorm(10000, mean = 20, sd = sqrt(10))
+gaussian_numbers
+hist(gaussian_numbers, breaks = 50, col = "skyblue", main = "Gaussian Distribution", xlab = "Value", probability = TRUE)
+#probability: Transform the Y-axis into probability density, ensuring that the total area of the histogram equals 1.
+#probability=TRUE: Density; probability=FALSE: frequency
+```
+1b. Generate 10000 random numbers from Binomial distribution with p=0.5 and n=40, and plot the distribution.
+
+Compare the distribution of 1a and 1b, what do you find? (hint: you can use “rand” and “randn” in matlab.
+Or, “runif” and “rnorm” in R)
+
+Ans:
+The Gaussian distribution is continuous and has a smoother shape.
+The binomial distribution is discrete and may exhibit more obvious peaks.
+
+```{r}
+binomial_numbers <- rbinom(10000, size = 40, prob = 0.5)#prob= 0.5: probability of success per trial is 0.5(like tossing coins)
+binomial_numbers
+hist(binomial_numbers, breaks = 50, col = "lightcoral", main = "Binomial Distribution", xlab = "Value", probability = TRUE)
+```
+Make a program that can select our candidates for presentation next week. 
+This program should select randomly but avoid selecting the numbers that had been selected before. (hint: uniform distribution, loop, and if statements.) 
+```{r}
+
+students <- 1:34
+
+students_per_class <- 2
+
+num_classes <- length(students) / students_per_class #how many classes do we have
+
+for (i in 1:num_classes) {
+  
+  selected <- sample(students, students_per_class) 
+  #select 2 students 
+  
+  students <- students[!students %in% selected] 
+  #delete students that were selected 
+  #!students %in% selected:this will return TRUE/FALSE, indicating which numbers in "students" haven't appeared in "selected"
+  #students[...]: keep TRUE(haven't been selected) only, delete FALSE
+  
+  cat("第", i, "堂課報告的同學: ", selected, "\n")
+  #`cat(): used to output text and variable values. It does not automatically add a newline, so you need to manually include `   "\n"`.
+  
+}
+
+```
+
+

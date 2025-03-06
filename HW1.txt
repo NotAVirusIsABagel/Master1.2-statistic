@@ -1,0 +1,281 @@
+Homework 1
+Yuan-Ling Chen
+
+copepod_data <- read.table("copepod_composition.txt", header = FALSE)
+cop_density <- read.table("cop_density.txt", header = FALSE)
+d <- readLines("copepodSPlist.txt")
+
+# set column names）
+colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+
+#Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
+copepod_data <- copepod_data[-1, ]  # delete 1st row
+rownames(copepod_data) <- species_list
+
+copepod_data[] <- lapply(copepod_data, as.numeric) #change character into numberso that we can use lapply
+str(copepod_data)
+
+# count density
+#sweep(data for manipulation, 1 for rows; 2 for columns,function to apply ex.* for multiply )
+# make sure cop_density$V1 correctly matches each column
+copepod_density <- apply(copepod_data, 2, function(x) x * rep(cop_density$V1, length.out = length(x)))
+
+
+# species richness
+#cope_data > 0 : if elements in copepod_data is >0 (return TRUE or FALSE)
+#colSums():times that every column(every species) in copepod_data is >0 (numbers of TRUE)
+species_richness <- colSums(copepod_data > 0)
+
+# Shannon
+#apply(): used to operate on each column or row of a matrix or data frame
+#function(x)  defines a function which performs calculations on each row.
+#x[x > 0]:get rid of values <0
+#p <- x[x > 0] / sum(x)：calculate the proportion of elements greater than 0 in the row relative to the row's total sum, representing the relative abundance of each species
+shannon_diversity <- apply(copepod_data, 2, function(x) {
+  p <- x[x > 0] / sum(x) 
+  -sum(p * log(p))
+})
+
+# dominant species
+#colSums(copepod_data): sum of every column
+#sweep(): this function divides the values in each row by the total sum of that row.
+relative_abundance <- sweep(copepod_data, 2, colSums(copepod_data), "/") * 100
+dominant_species <- unique(rownames(copepod_data)[apply(relative_abundance, 1, max) >= 5])
+
+# the average density of dominant species based on the season.
+#In `function(stations)`,`stations` is the list of station names corresponding to each season (e.g., all stations in Spring).。
+#copepod_density[dominant_species, stations, drop = FALSE]：Select the rows corresponding to `dominant_species` (species) and the columns corresponding to the specified stations in each season.
+#drop = FALSE ensure that even if only one row is selected, the matrix structure is maintained
+#rowMeans()：calculate the average density for each species at their respective stations.
+seasons <- list(
+  Spring = c("s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG"),
+  Summer = c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25"),
+  Winter = c("w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+)
+
+seasonal_density <- sapply(seasons, function(stations) {
+  rowMeans(copepod_density[dominant_species, stations, drop = FALSE])
+})
+
+
+list(
+  copepod_density = copepod_density,
+  species_richness = species_richness,
+  shannon_diversity = shannon_diversity,
+  dominant_species = dominant_species,
+  seasonal_density = seasonal_density
+)
+---------------------------------------------------
+
+1.Copepod_density
+                                                 p1          p3          p4          p6         p13         p16
+Acartia bifilosa                              0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Acartia erythraea                             0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Acartia negligence                            0.000      0.0000      0.0000      0.0000      0.0000    378.1800
+Acartia omori                                 0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Acartia pacifica                              0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Acartia sp                                    0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Aetideidae sp1                                0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Aetideidae sp2                                0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Aetideidae sp3                                0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Aetideidae copepodid                          0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Metacalanus auvivillii                        0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Haloptilus sp                                 0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Calanoides carinatus                          0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Calanus sinicus                           57653.180  28341.4300   9622.3400  36548.7200  22479.0800   7115.6800
+Canthocalanus pauper                          0.000      0.0000      0.0000      0.0000   1869.2200   1082.1800
+Cosmocalanus darwinii                         0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Mesocalanus tenuicornis                       0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Nannocalanus minor                            0.000    916.3700      0.0000      0.0000      0.0000   1061.0600
+Neocalanus gracilis                           0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Undinula vulgaris                             0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia bipinnata                            0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia bradyi                               0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia catula                               0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia discaudata                           0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia elongata                             0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candacia guggenheimi                          0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Paracandacia simplex                          0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Paracandacia truncata                         0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+Candaciidae copepodid                         0.000      0.0000      0.0000      0.0000      0.0000      0.0000
+                                                p19         p21        p23        p25        s18        s19        s20
+Acartia bifilosa                             0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Acartia erythraea                            0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Acartia negligence                        4022.4600      0.0000  4314.6900  2784.7800     0.0000     0.0000     0.0000
+Acartia omori                                0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Acartia pacifica                             0.0000      0.0000     0.0000     0.0000  5071.2200  1943.7600  1345.6800
+Acartia sp                                   0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Aetideidae sp1                               0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Aetideidae sp2                               0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Aetideidae sp3                               0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Aetideidae copepodid                         0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Metacalanus auvivillii                       0.0000      0.0000     0.0000     0.0000  1090.0200     0.0000     0.0000
+Haloptilus sp                                0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Calanoides carinatus                       392.0800      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Calanus sinicus                           7358.2600  69337.4500 13058.8900 32829.1600     0.0000     0.0000     0.0000
+Canthocalanus pauper                      5115.7600      0.0000  3541.6800  1574.0800 23660.3900 10772.6100 14215.9100
+Cosmocalanus darwinii                        0.0000      0.0000 18172.8400  4115.8000     0.0000     0.0000     0.0000
+Mesocalanus tenuicornis                    546.2600      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Nannocalanus minor                        1253.9800      0.0000     0.0000  1543.3600     0.0000  1495.1300     0.0000
+Neocalanus gracilis                          0.0000      0.0000     0.0000     0.0000     0.0000   492.2800     0.0000
+Undinula vulgaris                          752.7000      0.0000  2084.4000     0.0000  1071.1500   897.4500     0.0000
+Candacia bipinnata                           0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Candacia bradyi                              0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Candacia catula                              0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Candacia discaudata                          0.0000      0.0000     0.0000     0.0000  2929.6600  4988.3400     0.0000
+Candacia elongata                            0.0000      0.0000     0.0000     0.0000   469.9000     0.0000     0.0000
+Candacia guggenheimi                         0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Paracandacia simplex                         0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Paracandacia truncata                        0.0000      0.0000     0.0000     0.0000     0.0000     0.0000     0.0000
+Candaciidae copepodid                       11.9756      0.0000     0.0000    14.7392     0.0000    29.0178    49.7448
+                                                s22        s23        s25        s27         s29         sA         sB
+Acartia bifilosa                             0.0000     0.0000   335.7000     0.0000      0.0000     0.0000     0.0000
+Acartia erythraea                            0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia negligence                           0.0000     0.0000     0.0000  2612.8800    515.7000  5260.1400  2320.6500
+Acartia omori                                0.0000     0.0000     0.0000     0.0000      0.0000   222.3000     0.0000
+Acartia pacifica                          6018.1800 10578.5400  1856.5400     0.0000      0.0000   323.9600     0.0000
+Acartia sp                                   0.0000     0.0000     0.0000  1613.4800   3205.7300     0.0000     0.0000
+Aetideidae sp1                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp2                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp3                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae copepodid                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Metacalanus auvivillii                       0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Haloptilus sp                                0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Calanoides carinatus                         0.0000     0.0000   452.4000     0.0000      0.0000     0.0000     0.0000
+Calanus sinicus                              0.0000     0.0000     0.0000  1536.3400      0.0000  1051.1800  1091.6100
+Canthocalanus pauper                      3541.6800 12149.9300 48304.5800 44713.7100  23709.5800 35121.6600 19921.9500
+Cosmocalanus darwinii                        0.0000     0.0000     0.0000  4812.3200      0.0000     0.0000     0.0000
+Mesocalanus tenuicornis                      0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Nannocalanus minor                           0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Neocalanus gracilis                          0.0000     0.0000     0.0000     0.0000      0.0000  1222.7600     0.0000
+Undinula vulgaris                            0.0000     0.0000  2576.5500  6571.6500   5239.9500  5905.8000  7034.8500
+Candacia bipinnata                           0.0000     0.0000     0.0000     0.0000      0.0000     0.0000  1044.9000
+Candacia bradyi                              0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia catula                              0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia discaudata                          0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia elongata                            0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia guggenheimi                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Paracandacia simplex                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Paracandacia truncata                        0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candaciidae copepodid                        0.0000    12.4362     0.0000    17.5028      0.0000    82.4474    24.8724
+                                                 sC         sD         sE         sF          sG        w22        w23
+Acartia bifilosa                             0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia erythraea                            0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia negligence                        2131.5600  1065.7800  5019.4800   532.8900   2406.6000     0.0000     0.0000
+Acartia omori                                0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia pacifica                             0.0000     0.0000   398.7200  1906.3800      0.0000 24197.3200 64492.9600
+Acartia sp                                   0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp1                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp2                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp3                               0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae copepodid                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Metacalanus auvivillii                       0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Haloptilus sp                                0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Calanoides carinatus                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Calanus sinicus                              0.0000     0.0000  1293.7600     0.0000      0.0000 12735.4500  3153.5400
+Canthocalanus pauper                     40384.9900 27398.8300 47911.0600 30153.4700   1377.3200  5164.9500     0.0000
+Cosmocalanus darwinii                        0.0000  5888.7600     0.0000     0.0000      0.0000     0.0000     0.0000
+Mesocalanus tenuicornis                      0.0000   651.3100     0.0000     0.0000      0.0000     0.0000     0.0000
+Nannocalanus minor                           0.0000     0.0000  1543.3600  4437.1600      0.0000     0.0000     0.0000
+Neocalanus gracilis                          0.0000     0.0000  1540.3600     0.0000      0.0000     0.0000     0.0000
+Undinula vulgaris                         3589.8000  6282.1500  2808.1500  7092.7500      0.0000     0.0000     0.0000
+Candacia bipinnata                           0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia bradyi                              0.0000     0.0000     0.0000     0.0000      0.0000     0.0000   528.0600
+Candacia catula                              0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia discaudata                          0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia elongata                            0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia guggenheimi                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Paracandacia simplex                         0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Paracandacia truncata                        0.0000     0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candaciidae copepodid                       11.5150    28.5572    14.7392    28.0966     12.8968     0.0000     0.0000
+                                                w25         w27        w29         wA          wB         wC         wD
+Acartia bifilosa                             0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia erythraea                            0.0000      0.0000   484.2600     0.0000      0.0000     0.0000     0.0000
+Acartia negligence                           0.0000      0.0000     0.0000     0.0000   3816.1800  1942.4700  1598.6700
+Acartia omori                                0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Acartia pacifica                          3501.2600   4797.1000  7824.8800   685.3000    348.8800     0.0000   772.5200
+Acartia sp                                   0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Aetideidae sp1                               0.0000      0.0000     0.0000   950.3800      0.0000     0.0000     0.0000
+Aetideidae sp2                               0.0000      0.0000     0.0000  1227.5400      0.0000     0.0000     0.0000
+Aetideidae sp3                               0.0000      0.0000     0.0000   743.0500      0.0000     0.0000     0.0000
+Aetideidae copepodid                         0.0000      0.0000     0.0000     0.0000    268.8000     0.0000     0.0000
+Metacalanus auvivillii                       0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Haloptilus sp                                0.0000      0.0000     0.0000     0.0000      0.0000     0.0000   589.0000
+Calanoides carinatus                         0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Calanus sinicus                           1051.1800  15565.5500 33839.9100 98325.7600 101924.0300 36427.4300 47869.1200
+Canthocalanus pauper                      6296.3200  10329.9000 20561.4200  6739.0300   9542.8600 34137.8600 10723.4200
+Cosmocalanus darwinii                        0.0000   2216.2000  2659.4400  1709.6400      0.0000 17792.9200  1962.9200
+Mesocalanus tenuicornis                      0.0000      0.0000     0.0000     0.0000    588.2800   399.1900     0.0000
+Nannocalanus minor                           0.0000   3376.1000     0.0000     0.0000   2652.6500  7234.5000  1495.1300
+Neocalanus gracilis                          0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Undinula vulgaris                          752.7000   3039.7500  3647.7000   781.6500    810.6000  1621.2000     0.0000
+Candacia bipinnata                           0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia bradyi                              0.0000      0.0000   568.6800     0.0000      0.0000     0.0000     0.0000
+Candacia catula                              0.0000      0.0000     0.0000     0.0000   3020.6000     0.0000     0.0000
+Candacia discaudata                          0.0000      0.0000     0.0000     0.0000   2217.0400  1504.4200  2454.5800
+Candacia elongata                            0.0000      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Candacia guggenheimi                        93.1060      0.0000     0.0000     0.0000      0.0000     0.0000     0.0000
+Paracandacia simplex                         0.0000      0.0000     0.0000     0.0000      0.0000     0.0000    81.1518
+Paracandacia truncata                        0.0000      0.0000     0.0000     0.0000    133.9122    45.1752    25.0077
+Candaciidae copepodid                        0.0000      0.0000     0.0000     0.0000      0.0000    25.7936    14.2786
+ [ 達到了 getOption("max.print") -- 省略最後 152 列 ]]
+
+2. Species_richness
+ p1  p3  p4  p6 p13 p16 p19 p21 p23 p25 s18 s19 s20 s22 s23 s25 s27 s29  sA  sB  sC  sD  sE  sF  sG w22 w23 w25 w27 w29 
+  6  12   8   9  31  29  43   7  46  39  39  41  32  25  32  41  40  23  47  49  44  46  44  38  25  18  16  24  33  27 
+ wA  wB  wC  wD 
+ 44  54  64  48 
+
+3.Shannon diversity
+      p1       p3       p4       p6      p13      p16      p19      p21      p23      p25      s18      s19      s20 
+1.080774 1.256100 1.045397 1.114551 2.144871 1.413313 2.582899 1.566761 2.992793 2.486020 2.841974 2.983147 2.569602 
+     s22      s23      s25      s27      s29       sA       sB       sC       sD       sE       sF       sG      w22 
+2.567418 2.878602 2.999169 2.801593 2.118646 3.103710 2.984112 2.814511 2.937200 3.022854 2.890280 1.692341 1.979193 
+     w23      w25      w27      w29       wA       wB       wC       wD 
+1.615996 1.841770 2.579192 2.358281 2.613777 2.998802 3.211667 3.006538 
+
+4. Dominant species
+ [1] "Acartia pacifica"                       "Calanus sinicus"                       
+ [3] "Canthocalanus pauper"                   "Clausocalanus furcatus"                
+ [5] "Clausocalanus minor"                    "Subeucalanus pileatus"                 
+ [7] "Subeucalanus copepodid"                 "Euchaeta copepodid"                    
+ [9] "Acrocalanus gibber"                     "Calocalanus pavoninus"                 
+[11] "Paracalanus aculeatus"                  "Paracalanus pavus"                     
+[13] "Paracalanus serrulus"                   "Parvocalanus crassirostris"            
+[15] "Scolecithricella longispinosa"          "Temora turbinata"                      
+[17] "Oithona attenuata"                      "Oithona brevicornis"                   
+[19] "Oithona plumifera"                      "Oithona similis"                       
+[21] "Euterpina acutifrons"                   "Corycaeus (Ditrichocorycaeus)  affinis"
+[23] "Corycaeus (Ditrichocorycaeus) dahli"    "Corycaeus (Ditrichocorycaeus) lubbocki"
+[25] "Corycaeidae copepodid"                  "Oncaea conifera"                       
+[27] "Oncaea venusta"                        
+
+5. Average density by seasons of dominant species
+                                           Spring      Summer      Winter
+Acartia pacifica                        1962.8653     0.00000 11846.69111
+Calanus sinicus                          331.5260 28434.41900 38987.99667
+Canthocalanus pauper                   25555.8447  1318.29200 11499.52889
+Clausocalanus furcatus                  2144.7500  1114.52400  2444.39333
+Clausocalanus minor                     1934.7607  1910.70000  4203.54000
+Subeucalanus pileatus                   1486.1073     0.00000  3062.79111
+Subeucalanus copepodid                  2090.1900  1351.96500   823.46667
+Euchaeta copepodid                       465.2913   707.24750  6349.11300
+Acrocalanus gibber                      3655.9800   703.66500  1592.20000
+Calocalanus pavoninus                   1942.3960   318.16800     0.00000
+Paracalanus aculeatus                   4010.2667 24466.84800 66858.88444
+Paracalanus pavus                      26639.2793 96982.16000 33753.73222
+Paracalanus serrulus                   11970.6860     0.00000   326.89222
+Parvocalanus crassirostris             43756.9600  2556.28500   260.55000
+Scolecithricella longispinosa            576.2700    41.04000  2857.60000
+Temora turbinata                        6300.1600   264.96000  2652.80000
+Oithona attenuata                      20649.9620   186.92200     0.00000
+Oithona brevicornis                    11000.7947   120.30800     0.00000
+Oithona plumifera                       9703.3800  8901.00000  5925.40000
+Oithona similis                         8224.1627 72227.99600     0.00000
+Euterpina acutifrons                     138.2238    16.78248     0.00000
+Corycaeus (Ditrichocorycaeus)  affinis   401.9547 26185.08200     0.00000
+Corycaeus (Ditrichocorycaeus) dahli     1885.0953   195.89500   391.79000
+Corycaeus (Ditrichocorycaeus) lubbocki  6993.8040     0.00000  1666.12667
+Corycaeidae copepodid                      0.0000  2029.46000     0.00000
+Oncaea conifera                          244.7528     7.82499    57.09643
+Oncaea venusta                           229.0002    68.36544    77.33440

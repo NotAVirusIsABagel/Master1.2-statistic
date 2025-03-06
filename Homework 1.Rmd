@@ -1,0 +1,83 @@
+---
+title: "Homework 1"
+author: "Annie"
+date: "2025-02-26"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+copepod_data <- read.table("copepod_composition.txt", header = FALSE)
+cop_density <- read.table("cop_density.txt", header = FALSE)
+d <- readLines("copepodSPlist.txt")
+
+# set column names）
+colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+
+#Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
+copepod_data <- copepod_data[-1, ]  # delete 1st row
+rownames(copepod_data) <- species_list
+
+copepod_data[] <- lapply(copepod_data, as.numeric) #change character into numberso that we can use lapply
+str(copepod_data)
+
+# count density
+#sweep(data for manipulation, 1 for rows; 2 for columns,function to apply ex.* for multiply )
+# make sure cop_density$V1 correctly matches each column
+copepod_density <- apply(copepod_data, 2, function(x) x * rep(cop_density$V1, length.out = length(x)))
+
+
+# species richness
+#cope_data > 0 : if elements in copepod_data is >0 (return TRUE or FALSE)
+#colSums():times that every column(every species) in copepod_data is >0 (numbers of TRUE)
+species_richness <- colSums(copepod_data > 0)
+
+# Shannon
+#apply(): used to operate on each column or row of a matrix or data frame
+#function(x)  defines a function which performs calculations on each row.
+#x[x > 0]:get rid of values <0
+#p <- x[x > 0] / sum(x)：calculate the proportion of elements greater than 0 in the row relative to the row's total sum, representing the relative abundance of each species
+shannon_diversity <- apply(copepod_data, 2, function(x) {
+  p <- x[x > 0] / sum(x) 
+  -sum(p * log(p))
+})
+
+# dominant species
+#colSums(copepod_data): sum of every column
+#sweep(): this function divides the values in each row by the total sum of that row.
+relative_abundance <- sweep(copepod_data, 2, colSums(copepod_data), "/") * 100
+dominant_species <- unique(rownames(copepod_data)[apply(relative_abundance, 1, max) >= 5])
+
+# the average density of dominant species based on the season.
+#In `function(stations)`,`stations` is the list of station names corresponding to each season (e.g., all stations in Spring).。
+#copepod_density[dominant_species, stations, drop = FALSE]：Select the rows corresponding to `dominant_species` (species) and the columns corresponding to the specified stations in each season.
+#drop = FALSE ensure that even if only one row is selected, the matrix structure is maintained
+#rowMeans()：calculate the average density for each species at their respective stations.
+seasons <- list(
+  Spring = c("s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG"),
+  Summer = c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25"),
+  Winter = c("w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+)
+
+seasonal_density <- sapply(seasons, function(stations) {
+  rowMeans(copepod_density[dominant_species, stations, drop = FALSE])
+})
+
+
+list(
+  copepod_density = copepod_density,
+  species_richness = species_richness,
+  shannon_diversity = shannon_diversity,
+  dominant_species = dominant_species,
+  seasonal_density = seasonal_density
+)
+
+```
+
