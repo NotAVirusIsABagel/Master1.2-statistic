@@ -1,0 +1,182 @@
+---
+title: "HW4"
+author: "Annie"
+date: "2025-03-15"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+1. Compute the regression coefficients for fish = b0+b1*copepod and using bootstrap method to calculate the 95% confidence limits of b1 and test whether b1 is significantly different from 0 (with bootstrap 1000 times). 
+Please calculate the CL using three methods: percentile, BC and BCa methods.
+```{r}
+library(readxl)
+
+# Define the file path (modify this to the actual location of your file)
+#file_path <- "C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls"
+
+# Read the Excel file
+data <- read_excel("C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls")
+
+# Extract the required columns and rename them for convenience
+fish <- data[["FishDensity (ind./1000m3)"]]
+copepod <- data[["CopepodDensity ind./m3"]]
+```
+
+
+
+```{r}
+model <- lm(fish ~ copepod)
+coef_original <- coef(model) # Extracts the regression coefficients from the model and stores them in coef_original.
+
+# Bootstrap regression coefficients
+B <- 999  # Perform 999 bootstrap iterations (original data + 999 resamples)
+b1_bootstrap <- numeric(B + 1)  # Add one more space for the original data's coefficient
+b1_bootstrap[1] <- coef_original[2]  # Store the original model's b1 (slope) in the first position
+
+n <- length(fish)
+
+for (i in 1:B) {
+  idx <- floor(runif(n, min = 1, max = n + 1))  # Manually implement random sampling
+  fish_resample <- fish[idx]  # Sample from fish and copepod to generate a new bootstrap sample.
+  copepod_resample <- copepod[idx]
+  model_resample <- lm(fish_resample ~ copepod_resample)
+  b1_bootstrap[i + 1] <- coef(model_resample)[2]  
+  #Store bootstrap b1 coefficient, starting from the second position.
+  #Extract the regression coefficient b1 (slope) and store it in b1_bootstrap[i + 1].
+  #This gives us B different estimates of b1, which are used to calculate the confidence interval.
+}
+
+```
+
+Compute confidence intervals (Percentile method)
+```{r}
+CI_percentile <- quantile(b1_bootstrap, probs = c(0.025, 0.975))
+```
+
+Compute bias-corrected (BC) confidence intervals for b1 using the bootstrap method
+```{r}
+# Step 1: Calculate the bias correction factor z0
+z0 <- qnorm(mean(b1_bootstrap < coef_original[2]))  
+# b1_bootstrap < coef_original[2]` if bootstrap estimate is less than the original b1, creates a logical vector (TRUE/FALSE)  
+# mean(b1_bootstrap < coef_original[2])` calculates the proportion of bootstrap estimates less than the original b1  
+# qnorm(): converts this proportion into a z-score (z0), representing the bias correction factor  
+
+# Step 2: Compute adjusted quantiles for confidence intervals  
+alpha1 <- pnorm(2 * z0 + qnorm(0.025))  
+# qnorm(0.025)` gives the standard normal quantile for the lower 2.5% percentile (-1.96)  
+# 2 * z0 + qnorm(0.025)` adjusts the percentile based on bias correction  
+# pnorm(...)` converts this adjusted z-score back to a cumulative probability
+
+alpha2 <- pnorm(2 * z0 + qnorm(0.975))  
+# qnorm(0.975)` gives the standard normal quantile for the upper 97.5% percentile (+1.96)  
+# 2 * z0 + qnorm(0.975)` adjusts the upper percentile based on bias correction  
+# pnorm(...)` converts this adjusted z-score back to a cumulative probability  
+
+# Step 3: Compute the bias-corrected (BC) confidence interval  
+CI_BC <- quantile(b1_bootstrap, probs = c(alpha1, alpha2))  
+# quantile(b1_bootstrap, probs = c(alpha1, alpha2))`  
+# extracts the bootstrap estimates corresponding to the adjusted percentiles,  
+# providing the bias-corrected 95% confidence interval for b1.
+```
+
+BCa method (requires computing acceleration value a, detailed derivation omitted) (formula at P15)
+```{r}
+a_hat <- sum((b1_bootstrap - mean(b1_bootstrap))^3) / (6 * sum((b1_bootstrap - mean(b1_bootstrap))^2)^(3/2))
+#calculation of the skewness correction factor (a_hat), reflects the degree of skewness in the data distribution.
+alpha1_BCa <- pnorm(z0 + (z0 + qnorm(0.025)) / (1 - a_hat * (z0 + qnorm(0.025))))#The probability of the lower bound
+alpha2_BCa <- pnorm(z0 + (z0 + qnorm(0.975)) / (1 - a_hat * (z0 + qnorm(0.975))))#The probability of the upper bound
+CI_BCa <- quantile(b1_bootstrap, probs = c(alpha1_BCa, alpha2_BCa))#Calculate BCa
+
+# Test whether b1 is significantly different from 0
+p_value <- mean(b1_bootstrap < 0) * 2  # Two-tailed test
+
+# Display results
+list(
+  coef_original = coef_original,
+  CI_percentile = CI_percentile,
+  CI_BC = CI_BC,
+  CI_BCa = CI_BCa,
+  p_value = p_value
+)
+
+```
+2. Bootstrap test whether significant difference exists between the density of Oncaea Venusta and Canthocalanus pauper, using and BCa. (Assume each station is independent and use all 34 stations.)
+
+
+Extract density
+```{r}
+copepod_data <- read.table("copepod_composition.txt", header = FALSE)
+cop_density <- read.table("cop_density.txt", header = FALSE)
+species_list <- readLines("copepodSPlist.txt")
+d <- readLines("copepodSPlist.txt")
+
+# set column names）
+colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+
+library(dplyr)
+copepod_data <- dplyr::mutate_if(copepod_data, is.numeric, function(x) x / 100)
+
+#Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
+copepod_data <- copepod_data[-1, ]  # delete 1st row
+species_list <- species_list[-length(species_list)]
+
+rownames(copepod_data) <- species_list
+
+copepod_data[] <- lapply(copepod_data, as.numeric) #change character into number so that we can use lapply
+
+
+# count density
+#sweep(data for manipulation, 1 for rows; 2 for columns,function to apply ex.* for multiply )
+# make sure cop_density$V1 correctly matches each column
+copepod_density <- apply(copepod_data, 2, function(x) x * rep(cop_density$V1/100, length.out = length(x)))
+```
+
+
+```{r}
+B <- 999
+n <- length(copepod_density["Oncaea venusta", ])
+diff_bootstrap <- numeric(B)
+
+
+density1 <- copepod_density["Oncaea venusta", ] 
+density2 <- copepod_density["Canthocalanus pauper", ]  
+
+
+
+for (i in 1:B) {
+  idx <- floor(runif(n, min = 1, max = n))  
+  density1_sampled <- density1[idx]  
+  density2_sampled <- density2[idx]  
+  diff_bootstrap[i] <- mean(density1_sampled) - mean(density2_sampled)  # Compute mean difference
+}
+
+
+diff_original <- mean(density1) - mean(density2) # Compute original mean difference
+diff_bootstrap <- c(diff_bootstrap, diff_original)  # Append original statistic to bootstrap distribution
+
+# Percentile CI
+CI_percentile_diff <- quantile(diff_bootstrap, probs = c(0.025, 0.975)) # Compute 95% percentile CI
+
+# BCa method 
+z0_diff <- qnorm(mean(diff_bootstrap < diff_original)) # Compute bias correction term
+a_hat_diff <- sum((diff_bootstrap - mean(diff_bootstrap))^3) / 
+  (6 * sum((diff_bootstrap - mean(diff_bootstrap))^2)^(3/2))# Compute acceleration factor
+alpha1_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.025)) / (1 - a_hat_diff * (z0_diff + qnorm(0.025))))
+alpha2_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.975)) / (1 - a_hat_diff * (z0_diff + qnorm(0.975))))#quantiles of the confidence interval
+CI_BCa_diff <- quantile(diff_bootstrap, probs = c(alpha1_BCa_diff, alpha2_BCa_diff))# Compute BCa CI
+
+list(
+  Percentile_CI_for_Difference = CI_percentile_diff,  # Confidence interval for the mean difference calculated using percentile method.
+  BCa_CI_for_Difference = CI_BCa_diff  # Confidence interval for the mean difference calculated using BCa correction method.
+)
+
+
+```
+
+
