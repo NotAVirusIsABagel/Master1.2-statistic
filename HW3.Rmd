@@ -2,15 +2,16 @@
 title: "HW3"
 author: "Annie"
 date: "2025-03-06"
-output: html_document
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
 ```
-to do:
-1.確認fish copepod長度相同
-2.dataset
 
 NOTE: You are NOT allowed to use the built-in bootstrap or sampling functions in Matlab or R. 
 You can use some basic functions such as find, mean, median, var, sum, max, min, ceil, floor, round, sort, length, size, plot, hist and all matrix manipulation functions (e.g. reshape, ones, zeros). 
@@ -21,8 +22,18 @@ Plot the histogram of bootstrapped means with bootstrap 1000 times. (Normal theo
 
 read data
 ```{r}
-fish <- rnorm(30, mean = 10, sd = 2)
-copepod <- rnorm(30, mean = 5, sd = 1)
+library(readxl)
+
+# Define the file path (modify this to the actual location of your file)
+#file_path <- "C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls"
+
+# Read the Excel file
+data <- read_excel("C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls")
+
+# Extract the required columns and rename them for convenience
+fish <- data[["FishDensity (ind./1000m3)"]]
+copepod <- data[["CopepodDensity ind./m3"]]
+
 ```
 
 using normal theory to compute the SE for fish & copepod densities
@@ -40,38 +51,37 @@ print(paste("Normal theory estimates:"))
 print(paste("Fish: Mean =", mean_fish, "SE =", se_fish))
 print(paste("Copepod: Mean =", mean_copepod, "SE =", se_copepod))
 ```
-
-using bootstrap to compute the SE for fish & copepod densities
-creates a numeric vector of length 1000
-```{r}
-B <- 1000  
-boot_means_fish <- numeric(B)
-boot_means_copepod <- numeric(B)
-n <- length(fish)
-```
-
 using bootstrap to compute the SE for fish & copepod densities
 ```{r}
-B <- 1000  # Number of bootstrap iterations
-n <- length(fish)  # Length of the fish dataset (how many samples)
-boot_means_fish <- numeric(B)  #creates a numeric vector length 1000, to store the mean value after each bootstrap resampling
-boot_means_copepod <- numeric(B) 
+B <- 999  # Perform 999 bootstrap resamplings  
+n <- length(fish)  # Number of observations in the original dataset  
 
-for (i in 1:B) {
-  # Generate n random indices between 1 and n using runif
-  sample_indices <- floor(runif(n, min = 1, max = n + 1))  # runif()-> generate random indices from 1 to n(length of dataset)
-  boot_means_fish[i] <- mean(fish[sample_indices])  # Calculate mean of the fish sample, store it in boot_means_fish[i] vector
-  boot_means_copepod[i] <- mean(copepod[sample_indices])  # same for copepod
-}
+# Pre-allocate space for storing bootstrap means  
+boot_means_fish <- numeric(B + 1)  
+boot_means_copepod <- numeric(B + 1)  
 
-# Calculate the standard errors
-se_boot_fish <- sd(boot_means_fish)
-se_boot_copepod <- sd(boot_means_copepod)
+# The first sample uses the mean of the original dataset  
+boot_means_fish[1] <- mean(fish)  
+boot_means_copepod[1] <- mean(copepod)  
 
-# Print the results
-print("Bootstrap estimates:")
-print(paste("Fish: SE =", se_boot_fish))
-print(paste("Copepod: SE =", se_boot_copepod))
+# Perform 999 bootstrap resamplings  
+for (i in 2:(B + 1)) {  
+  # Generate random indices using runif() instead of sample()  
+  # runif(n, min = 1, max = n + 1) generates n random numbers in [1, n]  
+  # floor() converts them to integers to use as indices  
+  random_indices <- floor(runif(n, min = 1, max = n + 1))  
+  boot_means_fish[i] <- mean(fish[random_indices])  # Compute mean of the resampled fish data  
+  boot_means_copepod[i] <- mean(copepod[random_indices])  # Compute mean of the resampled copepod data  
+}  
+
+# Compute standard errors (SE)  
+se_boot_fish <- sd(boot_means_fish)  
+se_boot_copepod <- sd(boot_means_copepod)  
+
+# Print results  
+print("Bootstrap estimates:")  
+print(paste("Fish: SE =", se_boot_fish))  
+print(paste("Copepod: SE =", se_boot_copepod))  
 
 
 ```
@@ -83,14 +93,11 @@ par(mfrow=c(1,2))  # Set up a 1x2 plotting area
 hist(boot_means_fish, main="Bootstrap Means of Fish", 
      xlab="Mean Fish Density", col="lightblue", breaks=30)
 abline(v=mean_fish, col="red", lwd=2)
-#text(x=8.8, y=95, 
-    # labels=paste("Mean =", round(mean_fish, 2)), col="red", pos=4)
 
 hist(boot_means_copepod, main="Bootstrap Means of Copepod", 
      xlab="Mean Copepod Density", col="lightgreen", breaks=30)
 abline(v=mean_copepod, col="red", lwd=2)
-#text(x=4.4, y=110, 
-    # labels=paste("Mean =", round(mean_copepod, 2)), col="red", pos=4)
+
 ```
 
 2. Compute the median and bootstrapped SE(median) for the fish and copepod densities. 
@@ -107,29 +114,38 @@ print(paste("Fish: Median =", median_fish))
 print(paste("Copepod: Median =", median_copepod))
 ```
 ```{r}
-# Set bootstrap parameters
-B <- 1000  # Number of bootstrap iterations
-n <- length(fish)  # Sample size
+# Set bootstrap parameters  
+B <- 999  # Perform 999 bootstrap resamplings  
+n <- length(fish)  # Number of observations in the original dataset  
 
-# Create vectors to store bootstrap results
-boot_medians_fish <- numeric(B)
-boot_medians_copepod <- numeric(B)
+# Create vectors to store bootstrap results  
+boot_medians_fish <- numeric(B + 1)  
+boot_medians_copepod <- numeric(B + 1)  
 
-# Perform bootstrap resampling without using sample()
-for (i in 1:B) {
-  sample_indices <- floor(runif(n, min = 1, max = n + 1))  # Generate random indices between 1 and n
-  boot_medians_fish[i] <- median(fish[sample_indices])  # Compute median for resampled fish data, similar to Q.1
-  boot_medians_copepod[i] <- median(copepod[sample_indices])  # Compute median for resampled copepod data
-}
+# The first sample uses the median of the original dataset  
+boot_medians_fish[1] <- median_fish  
+boot_medians_copepod[1] <- median_copepod  
 
-# Compute bootstrap standard errors (SE) 
-se_boot_median_fish <- sd(boot_medians_fish)
-se_boot_median_copepod <- sd(boot_medians_copepod)
+# Perform 999 bootstrap resamplings  
+for (i in 2:(B + 1)) {  
+  # Generate random indices using runif() instead of sample()  
+  # runif(n, min = 1, max = n + 1) generates n random numbers in [1, n]  
+  # floor() converts them to integers to use as indices  
+  random_indices <- floor(runif(n, min = 1, max = n + 1))  
+  boot_medians_fish[i] <- median(fish[random_indices])  # Compute median for resampled fish data  
+  boot_medians_copepod[i] <- median(copepod[random_indices])  # Compute median for resampled copepod data  
+}  
 
-# Print the results
-print("Bootstrap estimates for Median:")
-print(paste("Fish: Median =", median_fish, "SE =", se_boot_median_fish))
-print(paste("Copepod: Median =", median_copepod, "SE =", se_boot_median_copepod))
+# Compute bootstrap standard errors (SE)  
+se_boot_median_fish <- sd(boot_medians_fish)  
+se_boot_median_copepod <- sd(boot_medians_copepod)  
+
+# Print the results  
+print("Bootstrap estimates for Median:")  
+print(paste("Fish: Median =", median_fish, "SE =", se_boot_median_fish))  
+print(paste("Copepod: Median =", median_copepod, "SE =", se_boot_median_copepod))  
+
+
 
 ```
 Plot histograms of bootstrapped medians
@@ -150,44 +166,6 @@ abline(v=median_copepod, col="red", lwd=2)
 3. Plot fish (dependent) v.s copepod (independent) and the regression line. 
 Compute the regression coefficients for fish = b0+b1*copepod and bootstrapped SE(b0) and SE(b1). 
 Plot the histogram of bootstrapped b0 and b1 with bootstrap 1000 times. 
-
-待刪
-```{r}
-# 4. 線性回歸與 Bootstrap 估計標準誤
-reg <- lm(fish ~ copepod)
-b0_hat <- coef(reg)[1]
-b1_hat <- coef(reg)[2]
-
-boot_b0 <- numeric(B)
-boot_b1 <- numeric(B)
-
-for (i in 1:B) {
-  sample_indices <- floor(runif(n, min = 1, max = n+1))
-  boot_reg <- lm(fish[sample_indices] ~ copepod[sample_indices])
-  boot_b0[i] <- coef(boot_reg)[1]
-  boot_b1[i] <- coef(boot_reg)[2]
-}
-
-se_b0 <- sd(boot_b0)
-se_b1 <- sd(boot_b1)
-
-cat("Regression b0:", b0_hat, "SE:", se_b0, "\n")
-cat("Regression b1:", b1_hat, "SE:", se_b1, "\n")
-
-# 繪製回歸線
-plot(copepod, fish, main = "Fish vs. Copepod", xlab = "Copepod Density", ylab = "Fish Density", pch = 16)
-abline(reg, col = "red", lwd = 2)
-
-# 繪製 Bootstrapped b0 和 b1 直方圖
-hist(boot_b0, breaks = 30, col = "orange", main = "Bootstrap b0")
-hist(boot_b1, breaks = 30, col = "purple", main = "Bootstrap b1")
-
-
-```
-night test
-3. Plot fish (dependent) v.s copepod (independent) and the regression line. 
-Compute the regression coefficients for fish = b0+b1*copepod and bootstrapped SE(b0) and SE(b1). 
-Plot the histogram of bootstrapped b0 and b1 with bootstrap 1000 times. 
 ```{r}
 # Compute linear regression coefficients
 model <- lm(fish ~ copepod)  #lm: linear model, with fish as the dependent variable and copepod as the independent variable
@@ -202,27 +180,37 @@ print(paste("b1 =", b1))
 bootstrapped SE(b0) and SE(b1)
 ```{r}
 # Bootstrap settings
-B <- 1000
-n <- length(fish)
+B <- 999  # Perform 999 bootstrap resamplings
+n <- length(fish)  # Number of observations in the dataset
 
-boot_b0 <- numeric(B)
-boot_b1 <- numeric(B)
+boot_b0 <- numeric(B + 1)  # Initialize vector to store intercept estimates
+boot_b1 <- numeric(B + 1)  # Initialize vector to store slope estimates
 
-# Bootstrap loop
-for (i in 1:B) {
-  sample_indices <- floor(runif(n, min = 1, max = n + 1)) # Generate n random indices for sampling
-  boot_model <- lm(fish[sample_indices] ~ copepod[sample_indices]) # Create a new linear regression model with bootstrapped samples
-  boot_b0[i] <- coef(boot_model)[1] #accumulate the results of bootstrap regression coefficients into vectors boot_b0 & b1
-  boot_b1[i] <- coef(boot_model)[2]
+# Fit the original linear model
+original_model <- lm(fish ~ copepod)
+boot_b0[1] <- coef(original_model)[1]  # Store the intercept of the original model
+boot_b1[1] <- coef(original_model)[2]  # Store the slope of the original model
+
+# Bootstrap loop without using sample()
+for (i in 2:(B + 1)) {
+  # Create a vector of random indices using a uniform distribution
+  resample_indices <- floor(runif(n, min = 1, max = n + 1))  # Generate random indices between 1 and n
+  
+  boot_model <- lm(fish[resample_indices] ~ copepod[resample_indices])  # Fit model on bootstrapped data
+  boot_b0[i] <- coef(boot_model)[1]  # Store intercept for bootstrapped model
+  boot_b1[i] <- coef(boot_model)[2]  # Store slope for bootstrapped model
 }
 
-# Compute bootstrap SE
-se_boot_b0 <- sd(boot_b0)
-se_boot_b1 <- sd(boot_b1)
+# Compute bootstrap standard errors
+se_boot_b0 <- sd(boot_b0)  # Standard error of the intercept
+se_boot_b1 <- sd(boot_b1)  # Standard error of the slope
 
+# Print results
 print("Bootstrap estimates for Regression Coefficients:")
-print(paste("b0: SE =", se_boot_b0))
-print(paste("b1: SE =", se_boot_b1))
+print(paste("b0: SE =", se_boot_b0)) 
+print(paste("b1: SE =", se_boot_b1)) 
+
+
 ```
 
 
@@ -244,6 +232,134 @@ hist(boot_b1, main = "Bootstrap Distribution of b1",
 abline(v = b1, col = "red", lwd = 2)
 
 ```
+
+1. Compute the mean and stand error of the mean for the fish and copepod density (all data points) respectively using Jackknife. 
+Plot the histogram of Jackknife means.
+```{r}
+# Jackknife function to compute mean and standard error
+jackknife_mean <- function(data) {
+  
+  n <- length(data)  # Get the number of data points
+  jackknife_means <- numeric(n)  # Create a numeric vector to store the mean after removing each data point.
+  
+# Loop through each data point, leaving one out at a time
+  for (i in 1:n) {
+    jackknife_means[i] <- mean(data[-i])  # Compute mean after leaving out the i-th data point
+  }
+  
+  jackknife_mean <- mean(jackknife_means)  # Compute the mean of all leave-one-out means
+  jackknife_se <- sqrt((n - 1) / n * sum((jackknife_means - jackknife_mean)^2))  # Compute Jackknife standard error (SE)
+  return(list(means = jackknife_means, mean = jackknife_mean, se = jackknife_se))
+}
+
+# Calculate for fish and copepod densities
+fish_jackknife <- jackknife_mean(fish)
+copepod_jackknife <- jackknife_mean(copepod)
+
+# Print results
+print(paste("Fish: Jackknife Mean =", round(fish_jackknife$mean, 2), "Jackknife SE =", round(fish_jackknife$se, 2)))
+print(paste("Copepod: Jackknife Mean =", round(copepod_jackknife$mean, 2), "Jackknife SE =", round(copepod_jackknife$se, 2)))
+
+# Plot histograms of Jackknife means
+par(mfrow=c(1,2))  # Set up a 1x2 plotting area
+hist(fish_jackknife$means, main="Jackknife Means of Fish", xlab="Mean Fish Density", col="lightblue", breaks=30)
+hist(copepod_jackknife$means, main="Jackknife Means of Copepod", xlab="Mean Copepod Density", col="lightgreen", breaks=30)
+
+
+```
+2. Compute the regression coefficients for fish = b0+b1*copepod and Jackknife SE of b0 and b1.
+Plot the histogram of Jackknife b0 and b1.
+
+```{r}
+# Jackknife function to compute regression coefficients (b0 and b1)
+
+jackknife_regression <- function(fish, copepod) {
+  
+  n <- length(fish) # Get the number of data points
+  jack_b0 <- numeric(n)  # Initialize vector to store leave-one-out b0 (intercept)
+  jack_b1 <- numeric(n)  # Initialize vector to store leave-one-out b1 (slope) 
+  
+  for (i in 1:n) {
+    # Create the jackknife sample (leave out the i-th data point)
+    jackknife_fish <- fish[-i] # Remove the i-th fish data point
+    jackknife_copepod <- copepod[-i] # Remove the corresponding copepod data point
+    
+    # Fit the linear model on the remaining data
+    model <- lm(jackknife_fish ~ jackknife_copepod) # Perform linear regression
+    jack_b0[i] <- coef(model)[1]  # Store b0 (intercept)
+    jack_b1[i] <- coef(model)[2]  # Store b1 (slope)
+  }
+  
+  jackknife_b0 <- mean(jack_b0)  # Jackknife estimate of b0
+  jackknife_b1 <- mean(jack_b1)  # Jackknife estimate of b1
+  
+  se_b0 <- sqrt((n - 1) / n * sum((jack_b0 - jackknife_b0)^2))  # Jackknife SE for b0
+  se_b1 <- sqrt((n - 1) / n * sum((jack_b1 - jackknife_b1)^2))  # Jackknife SE for b1
+  
+  return(list(b0 = jackknife_b0, b1 = jackknife_b1, se_b0 = se_b0, se_b1 = se_b1, jack_b0 = jack_b0, jack_b1 = jack_b1))
+}
+
+# Calculate for fish and copepod densities
+regression_jackknife <- jackknife_regression(fish, copepod)
+
+# Print results
+print(paste("Jackknife b0 =", round(regression_jackknife$b0, 2), "SE(b0) =", round(regression_jackknife$se_b0, 2)))
+print(paste("Jackknife b1 =", round(regression_jackknife$b1, 2), "SE(b1) =", round(regression_jackknife$se_b1, 2)))
+
+# Extract jackknife estimates for histogram plotting
+jack_b0 <- regression_jackknife$jack_b0
+jack_b1 <- regression_jackknife$jack_b1
+
+# Plot histograms of Jackknife b0 and b1
+par(mfrow=c(1,2))  # Set up a 1x2 plotting area
+hist(jack_b0, main="Jackknife b0", xlab="Intercept (b0)", col="lightblue", breaks=30)
+hist(jack_b1, main="Jackknife b1", xlab="Slope (b1)", col="lightgreen", breaks=30)
+
+```
+
+3. Compare the estimates for Q1 and Q2 obtained from normal theory, bootstrap, and jackknife.
+
+Ans:
+1. Jackknife and Normal Theory produce identical mean estimates, suggesting that removing one observation at a time does not introduce noticeable bias in this dataset.Bootstrap estimates are slightly lower, likely due to the additional variability introduced by resampling with replacement.
+
+2. Bootstrap estimates for both Fish_Mean and Copepod_Mean are slightly lower, likely due to variations introduced by the resampling process.
+
+3. Normal Theory and Jackknife produce the same standard error, indicating that the Jackknife method did not alter the standard error estimation in this case. Different standard error from the Bootstrap method shows that this approach suggests greater uncertainty in the data, which may affect confidence levels.
+
+calculate the SE of intercept(b0) and slope(b1) of regression using normal theory 
+```{r}
+# Linear Regression and SE for b0 and b1
+model <- lm(fish ~ copepod)
+b0 <- coef(model)[1]
+b1 <- coef(model)[2]
+summary_model <- summary(model)
+se_b0_normal <- summary_model$coefficients["(Intercept)", "Std. Error"]
+se_b1_normal <- summary_model$coefficients["copepod", "Std. Error"]
+
+print("Normal Theory estimates for Regression Coefficients:")
+print(paste("b0: SE =", se_b0_normal))
+print(paste("b1: SE =", se_b1_normal))
+```
+
+create dataframe for comparison
+```{r}
+
+comparison_table <- data.frame(
+  Method = c("Normal Theory", "Bootstrap", "Jackknife"),
+  Fish_Mean = c(mean_fish, mean(boot_means_fish), fish_jackknife$mean),
+  Fish_SE = c(se_fish, se_boot_fish, fish_jackknife$se),
+  Copepod_Mean = c(mean_copepod, mean(boot_means_copepod), copepod_jackknife$mean),
+  Copepod_SE = c(se_copepod, se_boot_copepod, copepod_jackknife$se),
+  b0 = c(b0, mean(boot_b0), regression_jackknife$b0),
+  SE_b0 = c(se_b0_normal, se_boot_b0, regression_jackknife$se_b0), 
+  b1 = c(b1, mean(boot_b1), regression_jackknife$b1),
+  SE_b1 = c(se_b1_normal, se_boot_b1, regression_jackknife$se_b1) 
+)
+
+print(comparison_table)
+
+```
+
 
 
 
