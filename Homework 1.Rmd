@@ -16,16 +16,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 copepod_data <- read.table("copepod_composition.txt", header = FALSE)
 cop_density <- read.table("cop_density.txt", header = FALSE)
+species_list <- readLines("copepodSPlist.txt")
 d <- readLines("copepodSPlist.txt")
 
 # set column names）
 colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
 
 #Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
-copepod_data <- copepod_data[-1, ]  # delete 1st row
+#copepod_data <- copepod_data[-1, ]  # delete 1st row
 rownames(copepod_data) <- species_list
 
-copepod_data[] <- lapply(copepod_data, as.numeric) #change character into numberso that we can use lapply
+copepod_data[] <- lapply(copepod_data, as.numeric) #change character into number so that we can use lapply
 str(copepod_data)
 
 # count density
