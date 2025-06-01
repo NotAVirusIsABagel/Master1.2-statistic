@@ -1,0 +1,554 @@
+---
+title: "HW14"
+author: "Annie"
+date: "2025-05-28"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(gridExtra) # To arrange multiple ggplot objects
+# Note: mvtnorm is explicitly replaced by manual implementations.
+```
+
+```{r}
+# Data for Pacific hake
+age <- c(0.5, 1, 1.5, 2, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3, 11.3, 12.3, 14)
+length <- c(10.67, 15.81, 26.63, 32.29, 39.85, 47.03, 43.65, 65.15, 49.68, 53.97, 52.69, 55.98, 53.51, 61.32, 67.56)
+data_df <- data.frame(age, length)
+```
+
+```{r}
+
+# Manual implementation of normal probability density function
+my_dnorm <- function(x, mean, sd, log = FALSE) {
+  if (sd <= 0) {
+    if (log) return(-Inf)
+    else return(0)
+  }
+  
+  term1 <- -0.5 * log(2 * pi) - log(sd)
+  term2 <- -0.5 * ((x - mean) / sd)^2
+  
+  if (log) {
+    return(term1 + term2)
+  } else {
+    return(exp(term1 + term2))
+  }
+}
+
+# Manual implementation of uniform probability density function
+my_dunif <- function(x, min, max, log = FALSE) {
+  if (min > max) {
+    stop("min must be less than or equal to max")
+  }
+  
+  density_val <- 0
+  if (x >= min && x <= max) {
+    density_val <- 1 / (max - min)
+  }
+  
+  if (log) {
+    if (density_val > 0) return(log(density_val))
+    else return(-Inf) # Outside range
+  } else {
+    return(density_val)
+  }
+}
+
+# Manual implementation of multivariate normal probability density function (for 2D)
+my_dmvnorm <- function(x, mean, sigma, log = FALSE) {
+  # x: numeric vector of length 2 (e.g., c(Linf, K))
+  # mean: numeric vector of length 2
+  # sigma: 2x2 covariance matrix
+  
+  if (length(x) != 2 || length(mean) != 2 || !is.matrix(sigma) || any(dim(sigma) != 2)) {
+    stop("x, mean must be vectors of length 2, and sigma must be a 2x2 matrix.")
+  }
+  
+  # Check for positive definiteness (determinant > 0 for non-singular matrix)
+  det_sigma <- det(sigma)
+  if (det_sigma <= 0) {
+    if (log) return(-Inf)
+    else return(0)
+  }
+  
+  # Calculate inverse of sigma
+  # Using solve() for matrix inverse, more numerically stable than explicit 2x2 inverse for larger matrices
+  # For 2x2: inv(A) = 1/det(A) * [d -b; -c a] for A = [a b; c d]
+  sigma_inv <- solve(sigma) # Equivalent to: matrix(c(sigma[2,2], -sigma[1,2], -sigma[2,1], sigma[1,1]), 2, 2) / det_sigma
+  
+  # Difference vector
+  diff <- x - mean
+  
+  # Quadratic form: diff' * sigma_inv * diff
+  quadratic_form <- as.numeric(t(diff) %*% sigma_inv %*% diff)
+  
+  # Log density formula
+  log_density <- -0.5 * (2 * log(2 * pi) + log(det_sigma) + quadratic_form)
+  
+  if (log) {
+    return(log_density)
+  } else {
+    return(exp(log_density))
+  }
+}
+```
+
+```{r}
+# Von Bertalanffy Growth Function
+vbgf <- function(t, Linf, K, t0) {
+  Linf * (1 - exp(-K * (t - t0)))
+}
+
+# Log-likelihood function for log-normal error (using manual dnorm equivalent)
+log_likelihood_lognormal <- function(obs_length, pred_length, sigma) {
+  # Ensure sigma is positive
+  if (sigma <= 0) return(-Inf)
+  
+  # Predicted lengths must be positive for log-normal.
+  # If any observed or predicted lengths are non-positive, likelihood is -Inf.
+  if (any(obs_length <= 0) || any(pred_length <= 0)) return(-Inf)
+
+  mu_log <- log(pred_length)
+  log_obs_length <- log(obs_length)
+  
+  # Manual log-normal likelihood calculation based on the formula:
+  # log(f_Y(y)) = -log(y_i) + log(dnorm(log(y_i), mu_log, sigma))
+  # Using my_dnorm here
+  log_density_terms <- my_dnorm(log_obs_length, mean = mu_log, sd = sigma, log = TRUE) - log_obs_length
+  
+  sum(log_density_terms)
+}
+
+# Function to calculate posterior (log scale)
+calculate_log_posterior <- function(Linf, K, t0, sigma, data_df, prior_Linf, prior_K, prior_t0, prior_sigma, prior_Lk_corr = NULL) {
+  # Parameter bounds check: return -Inf if parameters are outside reasonable (or prior defined) ranges.
+  # This acts as an implicit prior for grid points that are outside the specified ranges.
+  if (Linf <= 0 || K <= 0 || sigma <= 0) return(-Inf) # Linf, K, sigma must be positive
+
+  # Check against prior ranges if they are uniform (explicitly using my_dunif)
+  if (prior_Linf$type == "uniform" && (Linf < prior_Linf$min || Linf > prior_Linf$max)) return(-Inf)
+  if (prior_K$type == "uniform" && (K < prior_K$min || K > prior_K$max)) return(-Inf)
+  if (prior_t0$type == "uniform" && (t0 < prior_t0$min || t0 > prior_t0$max)) return(-Inf)
+  if (prior_sigma$type == "uniform" && (sigma < prior_sigma$min || sigma > prior_sigma$max)) return(-Inf)
+
+  # Calculate predicted lengths
+  pred_length <- vbgf(data_df$age, Linf, K, t0)
+  
+  # Ensure predicted lengths are realistic (e.g., positive).
+  # Add an upper bound to prevent extreme Linf/K combinations from generating huge lengths.
+  if (any(pred_length <= 0) || any(pred_length > 500)) { 
+    return(-Inf)
+  }
+
+  # Calculate log-likelihood
+  log_lik <- log_likelihood_lognormal(data_df$length, pred_length, sigma)
+  
+  # If log_lik is -Inf (e.g., due to pred_length issues), return -Inf immediately
+  if (is.infinite(log_lik) && log_lik < 0) return(-Inf)
+  
+  # Calculate log-prior
+  log_prior <- 0
+  
+  # Priors for Linf, K, t0, sigma (using manual dnorm/dunif)
+  if (prior_Linf$type == "uniform") {
+    log_prior <- log_prior + my_dunif(Linf, min = prior_Linf$min, max = prior_Linf$max, log = TRUE)
+  } else if (prior_Linf$type == "normal") {
+    log_prior <- log_prior + my_dnorm(Linf, mean = prior_Linf$mean, sd = prior_Linf$sd, log = TRUE)
+  }
+
+  if (prior_K$type == "uniform") {
+    log_prior <- log_prior + my_dunif(K, min = prior_K$min, max = prior_K$max, log = TRUE)
+  } else if (prior_K$type == "normal") {
+    log_prior <- log_prior + my_dnorm(K, mean = prior_K$mean, sd = prior_K$sd, log = TRUE)
+  }
+
+  if (prior_t0$type == "uniform") {
+    log_prior <- log_prior + my_dunif(t0, min = prior_t0$min, max = prior_t0$max, log = TRUE)
+  } else if (prior_t0$type == "normal") {
+    log_prior <- log_prior + my_dnorm(t0, mean = prior_t0$mean, sd = prior_t0$sd, log = TRUE)
+  }
+  
+  if (prior_sigma$type == "uniform") {
+    log_prior <- log_prior + my_dunif(sigma, min = prior_sigma$min, max = prior_sigma$max, log = TRUE)
+  } else if (prior_sigma$type == "normal") {
+    log_prior <- log_prior + my_dnorm(sigma, mean = prior_sigma$mean, sd = prior_sigma$sd, log = TRUE)
+  }
+
+  # Add correlation prior if provided (using manual dmvnorm)
+  if (!is.null(prior_Lk_corr)) {
+    mean_vec <- c(prior_Linf$mean, prior_K$mean)
+    cov_matrix <- matrix(c(prior_Linf$sd^2, prior_Lk_corr$rho * prior_Linf$sd * prior_K$sd,
+                           prior_Lk_corr$rho * prior_Linf$sd * prior_K$sd, prior_K$sd^2),
+                         nrow = 2, byrow = TRUE)
+    
+    # Check if the covariance matrix is positive semi-definite (required for my_dmvnorm)
+    if (det(cov_matrix) <= 0) { # det_sigma check is now inside my_dmvnorm
+        return(-Inf)
+    }
+
+    # Evaluate the multivariate normal density for (Linf, K)
+    log_prior_Lk_corr <- my_dmvnorm(c(Linf, K), mean = mean_vec, sigma = cov_matrix, log = TRUE)
+    
+    # Subtract independent normal densities since mvtnorm already accounts for them
+    log_prior <- log_prior + log_prior_Lk_corr - 
+                 my_dnorm(Linf, mean = prior_Linf$mean, sd = prior_Linf$sd, log = TRUE) - 
+                 my_dnorm(K, mean = prior_K$mean, sd = prior_K$sd, log = TRUE) 
+  }
+  
+  # Total log posterior
+  log_lik + log_prior
+}
+```
+Problem 1: Bayesian Grid Search with Uniform Priors
+```{r}
+cat("--- Problem 1: Bayesian Grid Search with Uniform Priors ---\n")
+
+# Define parameter ranges for grid search
+n_grid_p1 <- 50 # Number of points for each parameter
+Linf_grid_p1 <- seq(50, 100, length.out = n_grid_p1)
+K_grid_p1 <- seq(0.01, 0.6, length.out = n_grid_p1)
+t0_grid_p1 <- seq(-2, 1, length.out = n_grid_p1)
+sigma_grid_p1 <- seq(0.01, 0.5, length.out = n_grid_p1)
+
+# Initialize results matrix for storing log posteriors
+results_p1 <- array(dim = c(n_grid_p1, n_grid_p1, n_grid_p1, n_grid_p1),
+                    dimnames = list(Linf = Linf_grid_p1, K = K_grid_p1, t0 = t0_grid_p1, sigma = sigma_grid_p1))
+
+# Define uniform prior distributions for Problem 1
+prior_Linf_p1 <- list(type = "uniform", min = 50, max = 100)
+prior_K_p1 <- list(type = "uniform", min = 0.01, max = 0.6)
+prior_t0_p1 <- list(type = "uniform", min = -2, max = 1)
+prior_sigma_p1 <- list(type = "uniform", min = 0.01, max = 0.5)
+
+cat("Starting Problem 1 grid search (this might take a while for n_grid = 50)...\n")
+system.time({
+  for (i_Linf in 1:n_grid_p1) {
+    for (i_K in 1:n_grid_p1) {
+      for (i_t0 in 1:n_grid_p1) {
+        for (i_sigma in 1:n_grid_p1) {
+          Linf_val <- Linf_grid_p1[i_Linf]
+          K_val <- K_grid_p1[i_K]
+          t0_val <- t0_grid_p1[i_t0]
+          sigma_val <- sigma_grid_p1[i_sigma]
+
+          results_p1[i_Linf, i_K, i_t0, i_sigma] <- calculate_log_posterior(
+            Linf_val, K_val, t0_val, sigma_val, data_df,
+            prior_Linf_p1, prior_K_p1, prior_t0_p1, prior_sigma_p1
+          )
+        }
+      }
+    }
+  }
+})
+cat("Problem 1 grid search finished.\n")
+```
+
+```{r}
+# Convert log posteriors to posteriors
+# Subtract max for numerical stability to avoid Inf after exp()
+posterior_p1 <- exp(results_p1 - max(results_p1, na.rm = TRUE)) 
+
+# Calculate marginal posteriors by summing over other dimensions
+marginal_Linf_p1 <- apply(posterior_p1, 1, sum, na.rm = TRUE)
+marginal_K_p1 <- apply(posterior_p1, 2, sum, na.rm = TRUE)
+marginal_t0_p1 <- apply(posterior_p1, 3, sum, na.rm = TRUE)
+marginal_sigma_p1 <- apply(posterior_p1, 4, sum, na.rm = TRUE)
+
+# Normalize marginal posteriors to integrate to 1 (density)
+marginal_Linf_p1 <- marginal_Linf_p1 / sum(marginal_Linf_p1, na.rm = TRUE) / (Linf_grid_p1[2] - Linf_grid_p1[1])
+marginal_K_p1 <- marginal_K_p1 / sum(marginal_K_p1, na.rm = TRUE) / (K_grid_p1[2] - K_grid_p1[1])
+marginal_t0_p1 <- marginal_t0_p1 / sum(marginal_t0_p1, na.rm = TRUE) / (t0_grid_p1[2] - t0_grid_p1[1])
+marginal_sigma_p1 <- marginal_sigma_p1 / sum(marginal_sigma_p1, na.rm = TRUE) / (sigma_grid_p1[2] - sigma_grid_p1[1])
+
+# Calculate mean and median for each parameter from normalized marginals
+# Linf
+mean_Linf_p1 <- sum(Linf_grid_p1 * marginal_Linf_p1 * (Linf_grid_p1[2] - Linf_grid_p1[1]), na.rm = TRUE)
+cdf_Linf_p1 <- cumsum(marginal_Linf_p1 * (Linf_grid_p1[2] - Linf_grid_p1[1]))
+median_Linf_p1 <- Linf_grid_p1[which.min(abs(cdf_Linf_p1 - 0.5))]
+
+# K
+mean_K_p1 <- sum(K_grid_p1 * marginal_K_p1 * (K_grid_p1[2] - K_grid_p1[1]), na.rm = TRUE)
+cdf_K_p1 <- cumsum(marginal_K_p1 * (K_grid_p1[2] - K_grid_p1[1]))
+median_K_p1 <- K_grid_p1[which.min(abs(cdf_K_p1 - 0.5))]
+
+# t0
+mean_t0_p1 <- sum(t0_grid_p1 * marginal_t0_p1 * (t0_grid_p1[2] - t0_grid_p1[1]), na.rm = TRUE)
+cdf_t0_p1 <- cumsum(marginal_t0_p1 * (t0_grid_p1[2] - t0_grid_p1[1]))
+median_t0_p1 <- t0_grid_p1[which.min(abs(cdf_t0_p1 - 0.5))]
+
+# sigma
+mean_sigma_p1 <- sum(sigma_grid_p1 * marginal_sigma_p1 * (sigma_grid_p1[2] - sigma_grid_p1[1]), na.rm = TRUE)
+cdf_sigma_p1 <- cumsum(marginal_sigma_p1 * (sigma_grid_p1[2] - sigma_grid_p1[1]))
+median_sigma_p1 <- sigma_grid_p1[which.min(abs(cdf_sigma_p1 - 0.5))]
+
+# Print results for Problem 1
+cat("\nProblem 1: Results with Uniform Priors\n")
+cat("Linf: Mean =", round(mean_Linf_p1, 2), ", Median =", round(median_Linf_p1, 2), "\n")
+cat("K: Mean =", round(mean_K_p1, 3), ", Median =", round(median_K_p1, 3), "\n")
+cat("t0: Mean =", round(mean_t0_p1, 3), ", Median =", round(median_t0_p1, 3), "\n")
+cat("sigma: Mean =", round(mean_sigma_p1, 3), ", Median =", round(median_sigma_p1, 3), "\n\n")
+
+# Plotting marginal posteriors for Problem 1
+df_Linf_p1 <- data.frame(Linf = Linf_grid_p1, Density = marginal_Linf_p1)
+df_K_p1 <- data.frame(K = K_grid_p1, Density = marginal_K_p1)
+df_t0_p1 <- data.frame(t0 = t0_grid_p1, Density = marginal_t0_p1)
+df_sigma_p1 <- data.frame(sigma = sigma_grid_p1, Density = marginal_sigma_p1)
+
+plot_Linf_p1 <- ggplot(df_Linf_p1, aes(x = Linf, y = Density)) +
+  geom_area(fill = "steelblue", alpha = 0.8) +
+  geom_vline(xintercept = mean_Linf_p1, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_Linf_p1, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_Linf_p1, y = max(df_Linf_p1$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_Linf_p1, 2)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_Linf_p1, y = max(df_Linf_p1$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_Linf_p1, 2)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of Linf (P1)", x = "Linf", y = "Density") +
+  theme_minimal()
+
+plot_K_p1 <- ggplot(df_K_p1, aes(x = K, y = Density)) +
+  geom_area(fill = "forestgreen", alpha = 0.8) +
+  geom_vline(xintercept = mean_K_p1, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_K_p1, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_K_p1, y = max(df_K_p1$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_K_p1, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_K_p1, y = max(df_K_p1$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_K_p1, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of K (P1)", x = "K", y = "Density") +
+  theme_minimal()
+
+plot_t0_p1 <- ggplot(df_t0_p1, aes(x = t0, y = Density)) +
+  geom_area(fill = "darkorange", alpha = 0.8) +
+  geom_vline(xintercept = mean_t0_p1, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_t0_p1, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_t0_p1, y = max(df_t0_p1$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_t0_p1, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_t0_p1, y = max(df_t0_p1$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_t0_p1, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of t0 (P1)", x = "t0", y = "Density") +
+  theme_minimal()
+
+plot_sigma_p1 <- ggplot(df_sigma_p1, aes(x = sigma, y = Density)) +
+  geom_area(fill = "purple", alpha = 0.8) +
+  geom_vline(xintercept = mean_sigma_p1, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_sigma_p1, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_sigma_p1, y = max(df_sigma_p1$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_sigma_p1, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_sigma_p1, y = max(df_sigma_p1$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_sigma_p1, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of sigma (P1)", x = "sigma", y = "Density") +
+  theme_minimal()
+
+gridExtra::grid.arrange(plot_Linf_p1, plot_K_p1, plot_t0_p1, plot_sigma_p1, ncol = 2)
+
+median_Linf_p1_val <- median_Linf_p1
+median_K_p1_val <- median_K_p1
+median_t0_p1_val <- median_t0_p1
+
+age_seq_p1 <- seq(0, max(age) + 15, by = 0.1)
+predicted_length_p1 <- vbgf(age_seq_p1, median_Linf_p1_val, median_K_p1_val, median_t0_p1_val)
+
+plot_fitted_p1 <- ggplot(data_df, aes(x = age, y = length)) +
+  geom_point(size = 3) +
+  geom_line(data = data.frame(age = age_seq_p1, length = predicted_length_p1), aes(x = age, y = length), color = "blue", size = 1) +
+  labs(title = "Fitted VBGF Using Posterior Medians (Problem 1)",
+       x = "Age (years)", y = "Length (cm)") +
+  theme_minimal() +
+  ylim(0, max(data_df$length, predicted_length_p1, na.rm = TRUE) * 1.1)
+
+print(plot_fitted_p1)
+```
+
+Problem 2: Bayesian Grid Search with Informative Priors and Correlation
+```{r}
+cat("\n--- Problem 2: Bayesian Grid Search with Informative Priors and Correlation ---\n")
+# Define parameter ranges for grid search (adjusted for informative priors and to speed up)
+
+n_grid_p2 <- 15 # Reduced grid size for faster execution
+
+Linf_grid_p2 <- seq(40, 120, length.out = n_grid_p2) # Wider range for normal prior
+K_grid_p2 <- seq(0.01, 0.4, length.out = n_grid_p2) # Adjusted range for normal prior
+t0_grid_p2 <- seq(-2, 1, length.out = n_grid_p2)
+sigma_grid_p2 <- seq(0.01, 0.5, length.out = n_grid_p2)
+
+# Initialize results matrix for storing log posteriors
+results_p2 <- array(dim = c(n_grid_p2, n_grid_p2, n_grid_p2, n_grid_p2),
+                    dimnames = list(Linf = Linf_grid_p2, K = K_grid_p2, t0 = t0_grid_p2, sigma = sigma_grid_p2))
+
+# Define informative prior distributions for Problem 2
+prior_Linf_p2 <- list(type = "normal", mean = 86, sd = 10)
+prior_K_p2 <- list(type = "normal", mean = 0.13, sd = 0.02)
+prior_t0_p2 <- list(type = "uniform", min = -2, max = 1) # Still uniform
+prior_sigma_p2 <- list(type = "uniform", min = 0.01, max = 0.5) # Still uniform
+
+# Define correlation between Linf and K
+rho <- -0.6
+prior_Lk_corr_p2 <- list(rho = rho)
+
+cat("Starting Problem 2 grid search (n_grid =", n_grid_p2, ")...\n")
+system.time({
+  for (i_Linf in 1:n_grid_p2) {
+    for (i_K in 1:n_grid_p2) {
+      for (i_t0 in 1:n_grid_p2) {
+        for (i_sigma in 1:n_grid_p2) {
+          Linf_val <- Linf_grid_p2[i_Linf]
+          K_val <- K_grid_p2[i_K]
+          t0_val <- t0_grid_p2[i_t0]
+          sigma_val <- sigma_grid_p2[i_sigma]
+
+          results_p2[i_Linf, i_K, i_t0, i_sigma] <- calculate_log_posterior(
+            Linf_val, K_val, t0_val, sigma_val, data_df,
+            prior_Linf_p2, prior_K_p2, prior_t0_p2, prior_sigma_p2,
+            prior_Lk_corr = prior_Lk_corr_p2
+          )
+        }
+      }
+    }
+  }
+})
+cat("Problem 2 grid search finished.\n")
+```
+
+```{r}
+# Convert log posteriors to posteriors
+posterior_p2 <- exp(results_p2 - max(results_p2, na.rm = TRUE)) # Normalize
+
+# Calculate marginal posteriors
+marginal_Linf_p2 <- apply(posterior_p2, 1, sum, na.rm = TRUE)
+marginal_K_p2 <- apply(posterior_p2, 2, sum, na.rm = TRUE)
+marginal_t0_p2 <- apply(posterior_p2, 3, sum, na.rm = TRUE)
+marginal_sigma_p2 <- apply(posterior_p2, 4, sum, na.rm = TRUE)
+
+# Normalize marginal posteriors
+marginal_Linf_p2 <- marginal_Linf_p2 / sum(marginal_Linf_p2, na.rm = TRUE) / (Linf_grid_p2[2] - Linf_grid_p2[1])
+marginal_K_p2 <- marginal_K_p2 / sum(marginal_K_p2, na.rm = TRUE) / (K_grid_p2[2] - K_grid_p2[1])
+marginal_t0_p2 <- marginal_t0_p2 / sum(marginal_t0_p2, na.rm = TRUE) / (t0_grid_p2[2] - t0_grid_p2[1])
+marginal_sigma_p2 <- marginal_sigma_p2 / sum(marginal_sigma_p2, na.rm = TRUE) / (sigma_grid_p2[2] - sigma_grid_p2[1])
+
+# Calculate mean and median for each parameter
+# Linf
+mean_Linf_p2 <- sum(Linf_grid_p2 * marginal_Linf_p2 * (Linf_grid_p2[2] - Linf_grid_p2[1]), na.rm = TRUE)
+cdf_Linf_p2 <- cumsum(marginal_Linf_p2 * (Linf_grid_p2[2] - Linf_grid_p2[1]))
+median_Linf_p2 <- Linf_grid_p2[which.min(abs(cdf_Linf_p2 - 0.5))]
+
+# K
+mean_K_p2 <- sum(K_grid_p2 * marginal_K_p2 * (K_grid_p2[2] - K_grid_p2[1]), na.rm = TRUE)
+cdf_K_p2 <- cumsum(marginal_K_p2 * (K_grid_p2[2] - K_grid_p2[1]))
+median_K_p2 <- K_grid_p2[which.min(abs(cdf_K_p2 - 0.5))]
+
+# t0
+mean_t0_p2 <- sum(t0_grid_p2 * marginal_t0_p2 * (t0_grid_p2[2] - t0_grid_p2[1]), na.rm = TRUE)
+cdf_t0_p2 <- cumsum(marginal_t0_p2 * (t0_grid_p2[2] - t0_grid_p2[1]))
+median_t0_p2 <- t0_grid_p2[which.min(abs(cdf_t0_p2 - 0.5))]
+
+# sigma
+mean_sigma_p2 <- sum(sigma_grid_p2 * marginal_sigma_p2 * (sigma_grid_p2[2] - sigma_grid_p2[1]), na.rm = TRUE)
+cdf_sigma_p2 <- cumsum(marginal_sigma_p2 * (sigma_grid_p2[2] - sigma_grid_p2[1]))
+median_sigma_p2 <- sigma_grid_p2[which.min(abs(cdf_sigma_p2 - 0.5))]
+
+# Print results for Problem 2
+cat("\nProblem 2: Results with Informative Priors and L-K Correlation\n")
+cat("Linf: Mean =", round(mean_Linf_p2, 2), ", Median =", round(median_Linf_p2, 2), "\n")
+cat("K: Mean =", round(mean_K_p2, 3), ", Median =", round(median_K_p2, 3), "\n")
+cat("t0: Mean =", round(mean_t0_p2, 3), ", Median =", round(median_t0_p2, 3), "\n")
+cat("sigma: Mean =", round(mean_sigma_p2, 3), ", Median =", round(median_sigma_p2, 3), "\n\n")
+
+# Plotting marginal posteriors for Problem 2
+df_Linf_p2 <- data.frame(Linf = Linf_grid_p2, Density = marginal_Linf_p2)
+df_K_p2 <- data.frame(K = K_grid_p2, Density = marginal_K_p2)
+df_t0_p2 <- data.frame(t0 = t0_grid_p2, Density = marginal_t0_p2)
+df_sigma_p2 <- data.frame(sigma = sigma_grid_p2, Density = marginal_sigma_p2)
+
+plot_Linf_p2 <- ggplot(df_Linf_p2, aes(x = Linf, y = Density)) +
+  geom_area(fill = "steelblue", alpha = 0.8) +
+  geom_vline(xintercept = mean_Linf_p2, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_Linf_p2, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_Linf_p2, y = max(df_Linf_p2$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_Linf_p2, 2)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_Linf_p2, y = max(df_Linf_p2$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_Linf_p2, 2)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of Linf (P2)", x = "Linf", y = "Density") +
+  theme_minimal()
+
+plot_K_p2 <- ggplot(df_K_p2, aes(x = K, y = Density)) +
+  geom_area(fill = "forestgreen", alpha = 0.8) +
+  geom_vline(xintercept = mean_K_p2, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_K_p2, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_K_p2, y = max(df_K_p2$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_K_p2, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_K_p2, y = max(df_K_p2$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_K_p2, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of K (P2)", x = "K", y = "Density") +
+  theme_minimal()
+
+plot_t0_p2 <- ggplot(df_t0_p2, aes(x = t0, y = Density)) +
+  geom_area(fill = "darkorange", alpha = 0.8) +
+  geom_vline(xintercept = mean_t0_p2, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_t0_p2, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_t0_p2, y = max(df_t0_p2$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_t0_p2, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_t0_p2, y = max(df_t0_p2$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_t0_p2, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of t0 (P2)", x = "t0", y = "Density") +
+  theme_minimal()
+
+plot_sigma_p2 <- ggplot(df_sigma_p2, aes(x = sigma, y = Density)) +
+  geom_area(fill = "purple", alpha = 0.8) +
+  geom_vline(xintercept = mean_sigma_p2, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = median_sigma_p2, color = "blue", linetype = "dashed") +
+  annotate("text", x = mean_sigma_p2, y = max(df_sigma_p2$Density, na.rm = TRUE) * 0.9, label = paste("Mean =", round(mean_sigma_p2, 3)), color = "red", hjust = -0.1) +
+  annotate("text", x = median_sigma_p2, y = max(df_sigma_p2$Density, na.rm = TRUE) * 0.8, label = paste("Median =", round(median_sigma_p2, 3)), color = "blue", hjust = -0.1) +
+  labs(title = "Marginal Posterior of sigma (P2)", x = "sigma", y = "Density") +
+  theme_minimal()
+
+gridExtra::grid.arrange(plot_Linf_p2, plot_K_p2, plot_t0_p2, plot_sigma_p2, ncol = 2)
+
+median_Linf_p2_val <- median_Linf_p2
+median_K_p2_val <- median_K_p2
+median_t0_p2_val <- median_t0_p2
+
+age_seq_p2 <- seq(0, max(age) + 15, by = 0.1)
+predicted_length_p2 <- vbgf(age_seq_p2, median_Linf_p2_val, median_K_p2_val, median_t0_p2_val)
+
+plot_fitted_p2 <- ggplot(data_df, aes(x = age, y = length)) +
+  geom_point(size = 3) +
+  geom_line(data = data.frame(age = age_seq_p2, length = predicted_length_p2), aes(x = age, y = length), color = "blue", size = 1) +
+  labs(title = "Fitted VBGF Using Posterior Medians (Problem 2)",
+       x = "Age (years)", y = "Length (cm)") +
+  theme_minimal() +
+  ylim(0, max(data_df$length, predicted_length_p2, na.rm = TRUE) * 1.1)
+
+print(plot_fitted_p2)
+```
+
+Comparison of Results (Parameters and Curves)
+```{r}
+cat("\n--- Comparison of Results (Parameters and Curves) ---\n")
+# Comparison of Parameters
+cat("Parameter | Problem 1 (Mean/Median) | Problem 2 (Mean/Median)\n")
+cat("----------------------------------------------------------------\n")
+cat("Linf      |", round(mean_Linf_p1, 2), "/", round(median_Linf_p1, 2), "      |", round(mean_Linf_p2, 2), "/", round(median_Linf_p2, 2), "\n")
+cat("K         |", round(mean_K_p1, 3), "/", round(median_K_p1, 3), "     |", round(mean_K_p2, 3), "/", round(median_K_p2, 3), "\n")
+cat("t0        |", round(mean_t0_p1, 3), "/", round(median_t0_p1, 3), "      |", round(mean_t0_p2, 3), "/", round(median_t0_p2, 3), "\n")
+cat("sigma     |", round(mean_sigma_p1, 3), "/", round(median_sigma_p1, 3), "     |", round(mean_sigma_p2, 3), "/", round(median_sigma_p2, 3), "\n")
+cat("----------------------------------------------------------------\n\n")
+
+# Plotting both fitted curves for comparison
+predicted_length_p1_comp <- vbgf(age_seq_p1, median_Linf_p1_val, median_K_p1_val, median_t0_p1_val)
+predicted_length_p2_comp <- vbgf(age_seq_p2, median_Linf_p2_val, median_K_p2_val, median_t0_p2_val)
+
+# Combine predicted lengths into a single data frame for ggplot
+plot_data_curves <- data.frame(
+  age = c(age_seq_p1, age_seq_p2),
+  length = c(predicted_length_p1_comp, predicted_length_p2_comp),
+  model = c(rep("Problem 1 (Uniform Priors)", length(age_seq_p1)),
+            rep("Problem 2 (Informative Priors)", length(age_seq_p2)))
+)
+
+plot_comparison <- ggplot(data_df, aes(x = age, y = length)) +
+  geom_point(size = 3) +
+  geom_line(data = plot_data_curves, aes(x = age, y = length, color = model), size = 1) +
+  scale_color_manual(values = c("Problem 1 (Uniform Priors)" = "blue", "Problem 2 (Informative Priors)" = "red")) +
+  labs(title = "Comparison of Fitted VBGF Curves",
+       x = "Age (years)", y = "Length (cm)",
+       color = "Model") +
+  theme_minimal() +
+  ylim(0, max(data_df$length, predicted_length_p1_comp, predicted_length_p2_comp, na.rm = TRUE) * 1.1)
+
+print(plot_comparison)
+
+
+
