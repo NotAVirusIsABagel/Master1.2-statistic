@@ -1,0 +1,1028 @@
+---
+title: "HW14 test"
+author: "Annie"
+date: "2025-05-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+原版的，也work可是數值差比較多
+---------------
+```{r}
+library(coda) # For MCMC diagnostics
+library(ggplot2) # For plotting
+```
+
+
+```{r}
+age <- c(0.5, 1, 1.5, 2, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3, 11.3, 12.3, 14)
+length <- c(10.67, 15.81, 26.63, 32.29, 39.85, 47.03, 53.65, 65.15, 49.68, 53.97, 52.69, 55.98, 53.51, 61.32, 67.56)
+data <- data.frame(age, length)
+```
+
+
+```{r}
+# --- VBGF function ---
+vb_growth <- function(age, Linf, K, t0) {
+  Linf * (1 - exp(-K * (age - t0)))
+}
+
+# --- Log-normal likelihood function (custom implementation, as per instruction not to use dlnorm/dnorm) ---
+log_likelihood_lnorm <- function(observed_lengths, predicted_lengths, sigma) {
+  if (sigma <= 0) return(-Inf) # Sigma must be positive
+
+  # Avoid log(0) or log(negative) issues
+  if (any(observed_lengths <= 0) || any(predicted_lengths <= 0)) {
+    return(-Inf)
+  }
+
+  n <- length(observed_lengths)
+  mu_i <- log(predicted_lengths)
+  
+  # Calculate the product part of the likelihood (1 / (yi * sigma * sqrt(2*pi)))
+  # In log space, this becomes -log(yi) - log(sigma) - 0.5 * log(2*pi)
+  log_product_term <- -sum(log(observed_lengths)) - n * log(sigma) - n * 0.5 * log(2 * pi)
+  
+  # Calculate the exponential part of the likelihood (exp(-(log(yi) - mu_i)^2 / (2*sigma^2)))
+  # In log space, this becomes -0.5 * sum((log(observed_lengths) - mu_i)^2 / sigma^2)
+  log_exp_term <- -0.5 * sum(((log(observed_lengths) - mu_i)^2) / (sigma^2))
+  
+  log_likelihood <- log_product_term + log_exp_term
+  
+  return(log_likelihood)
+}
+
+# --- Helper function to calculate log prior ---
+log_prior <- function(params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr = 0) {
+  Linf <- params[1]
+  K <- params[2]
+  t0 <- params[3]
+  sigma <- params[4]
+
+  lp <- 0 # Initialize log prior
+
+  # Priors for Problem 1 (Uniform)
+  if (Linf_prior_type == "uniform_P1") {
+    if (Linf < 50 || Linf > 100) return(-Inf)
+  }
+  if (K_prior_type == "uniform_P1") {
+    if (K < 0.01 || K > 0.6) return(-Inf)
+  }
+  if (t0_prior_type == "uniform_P1") {
+    if (t0 < -2 || t0 > 1) return(-Inf)
+  }
+  if (sigma_prior_type == "uniform_P1") {
+    if (sigma < 0.01 || sigma > 0.5) return(-Inf)
+  }
+
+  # Priors for Problem 2 (Normal and Uniform with Correlation)
+  if (Linf_prior_type == "normal_P2" && K_prior_type == "normal_P2") {
+    # Multivariate Normal for Linf and K
+    mean_Linf <- 86
+    mean_K <- 0.13
+    sd_Linf <- 10 / 3 # Assuming U[mean - sd*sqrt(3), mean + sd*sqrt(3)] roughly covers the range
+    sd_K <- 0.02 # sd is given directly
+    rho <- Linf_K_corr
+
+    # Covariance matrix
+    Sigma <- matrix(c(sd_Linf^2, rho * sd_Linf * sd_K,
+                      rho * sd_Linf * sd_K, sd_K^2), nrow = 2)
+
+    # Check for valid parameters for the multivariate normal distribution
+    if (any(is.na(c(Linf, K))) || !is.finite(Linf) || !is.finite(K)) {
+      return(-Inf)
+    }
+
+    # Calculate log density of multivariate normal. Using dmvnorm from mvtnorm package is easier,
+    # but since it's not explicitly forbidden, and implementing it manually is complex,
+    # we'll approximate the log-prior for Linf and K as independent normal if `mvtnorm` is not allowed.
+    # Given the problem's phrasing "Using MCMC sampling (with 20% burn in and thinning rate of 10th)",
+    # implying a common MCMC setup, we'll aim for a direct solution if possible.
+    # If the user wishes to implement the multivariate normal manually, it's a more involved calculation.
+
+    # Let's use a simpler (and commonly accepted in similar scenarios) approach for the correlated normal:
+    # We can model Linf ~ N(86, (10/3)^2) and K ~ N(0.13, 0.02^2) and add a penalty for correlation.
+    # However, the problem explicitly gives a covariance matrix. We will assume we can use a library for MVN.
+    # If not, the manual calculation of the MVN PDF is:
+    # f(x) = (1 / (sqrt((2*pi)^k * det(Sigma)))) * exp(-0.5 * (x - mu)^T * Sigma^-1 * (x - mu))
+    # where k=2, x = (Linf, K), mu = (mean_Linf, mean_K)
+
+    # For this demonstration, I'll calculate the log-prior for a 2D normal distribution manually for (Linf, K).
+    # This avoids relying on an external package like `mvtnorm` explicitly.
+    x_minus_mu <- c(Linf - mean_Linf, K - mean_K)
+    inv_Sigma <- solve(Sigma) # Inverse of covariance matrix
+    det_Sigma <- det(Sigma) # Determinant of covariance matrix
+
+    if (det_Sigma <= 0) return(-Inf) # Sigma must be positive definite
+
+    lp_Linf_K <- -0.5 * (t(x_minus_mu) %*% inv_Sigma %*% x_minus_mu) - 0.5 * log(det_Sigma) - log(2 * pi)
+    lp <- lp + lp_Linf_K
+
+  } else { # If not using the correlated normal, use independent normal priors
+    if (Linf_prior_type == "normal_P2") {
+      mean_Linf <- 86
+      sd_Linf <- 10 # This is from (10/3)^2 so 10^2
+      lp <- lp + dnorm(Linf, mean = mean_Linf, sd = sd_Linf, log = TRUE)
+    }
+    if (K_prior_type == "normal_P2") {
+      mean_K <- 0.13
+      sd_K <- 0.02
+      lp <- lp + dnorm(K, mean = mean_K, sd = sd_K, log = TRUE)
+    }
+  }
+
+
+  if (t0_prior_type == "uniform_P2") {
+    if (t0 < -2 || t0 > 1) return(-Inf)
+  }
+  if (sigma_prior_type == "uniform_P2") {
+    if (sigma < 0.01 || sigma > 0.5) return(-Inf)
+  }
+  
+  # Ensure K and sigma are positive
+  if (K <= 0 || sigma <= 0) return(-Inf)
+
+  return(lp)
+}
+
+# --- MCMC Sampler Function ---
+run_mcmc <- function(iterations, burn_in_prop, thinning_rate,
+                     Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type,
+                     Linf_K_corr = 0) {
+
+  # Initial parameters (can be random within prior range or from MLE)
+  # Let's start with MLE results from the image for better convergence
+  # Linf = 59.32, K = 0.34, t0 = -0.06, sigma = 0.10
+  current_params <- c(59.32, 0.34, -0.06, 0.10) # Linf, K, t0, sigma
+
+  # Proposal standard deviations for random walk Metropolis-Hastings
+  # These often require tuning for good acceptance rates (20-40%)
+  proposal_sd <- c(Linf = 0.5, K = 0.005, t0 = 0.01, sigma = 0.005) # Increased sigma proposal for problem 2.
+
+  chain <- matrix(NA, nrow = iterations, ncol = length(current_params))
+  colnames(chain) <- c("Linf", "K", "t0", "sigma")
+
+  acceptance_count <- 0
+
+  for (i in 1:iterations) {
+    # Propose new parameters (random walk)
+    proposed_params <- current_params + rnorm(length(current_params), 0, proposal_sd)
+
+    # Calculate log-likelihood for current and proposed parameters
+    predicted_current <- vb_growth(data$age, current_params[1], current_params[2], current_params[3])
+    log_lik_current <- log_likelihood_lnorm(data$length, predicted_current, current_params[4])
+
+    predicted_proposed <- vb_growth(data$age, proposed_params[1], proposed_params[2], proposed_params[3])
+    log_lik_proposed <- log_likelihood_lnorm(data$length, predicted_proposed, proposed_params[4])
+
+    # Calculate log-prior for current and proposed parameters
+    log_prior_current <- log_prior(current_params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr)
+    log_prior_proposed <- log_prior(proposed_params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr)
+
+    # Calculate acceptance ratio (in log space)
+    log_alpha <- (log_lik_proposed + log_prior_proposed) - (log_lik_current + log_prior_current)
+
+    # Acceptance step
+    if (log(runif(1)) < log_alpha) {
+      current_params <- proposed_params
+      acceptance_count <- acceptance_count + 1
+    }
+
+    chain[i, ] <- current_params
+  }
+
+  acceptance_rate <- acceptance_count / iterations
+  message(paste("Acceptance Rate:", round(acceptance_rate, 3)))
+
+  # Apply burn-in and thinning
+  burn_in_iterations <- floor(iterations * burn_in_prop)
+  mcmc_samples <- chain[(burn_in_iterations + 1):iterations, ]
+  mcmc_samples_thinned <- mcmc_samples[seq(1, nrow(mcmc_samples), by = thinning_rate), ]
+
+  return(mcmc_samples_thinned)
+}
+```
+
+# Problem 1 MCMC settings
+```{r}
+
+iterations_p1 <- 50000 # Increased iterations for better convergence
+burn_in_prop_p1 <- 0.2
+thinning_rate_p1 <- 10
+
+message("Running MCMC for Problem 1...")
+mcmc_samples_p1 <- run_mcmc(iterations_p1, burn_in_prop_p1, thinning_rate_p1,
+                            Linf_prior_type = "uniform_P1", K_prior_type = "uniform_P1",
+                            t0_prior_type = "uniform_P1", sigma_prior_type = "uniform_P1")
+
+# Convert to 'mcmc' object for easy diagnostics
+mcmc_output_p1 <- as.mcmc(mcmc_samples_p1)
+
+# Diagnostic Plots (Trace plots and Posterior distributions)
+par(mfrow = c(4, 2), mar = c(2, 4, 2, 1) + 0.1) # Adjust margins for better plot layout
+plot(mcmc_output_p1)
+title("MCMC Trace and Posterior Plots (Problem 1)", line = -1, outer = TRUE)
+
+# Summary of posterior distributions
+summary_p1 <- summary(mcmc_output_p1)
+print("Problem 1 Posterior Summary:")
+print(summary_p1)
+
+# Calculate 95% Credible Intervals for parameters
+quantile_p1 <- apply(mcmc_samples_p1, 2, quantile, probs = c(0.025, 0.5, 0.975))
+print("Problem 1 95% Credible Intervals (Median and 95% CI):")
+print(quantile_p1)
+```
+# Problem 2 MCMC settings
+```{r}
+# Problem 2 MCMC settings
+iterations_p2 <- 50000 # Same iterations as P1
+burn_in_prop_p2 <- 0.2
+thinning_rate_p2 <- 10
+
+message("Running MCMC for Problem 2...")
+mcmc_samples_p2 <- run_mcmc(iterations_p2, burn_in_prop_p2, thinning_rate_p2,
+                            Linf_prior_type = "normal_P2", K_prior_type = "normal_P2",
+                            t0_prior_type = "uniform_P2", sigma_prior_type = "uniform_P2",
+                            Linf_K_corr = -0.6)
+
+# Convert to 'mcmc' object for easy diagnostics
+mcmc_output_p2 <- as.mcmc(mcmc_samples_p2)
+
+# Diagnostic Plots (Trace plots and Posterior distributions)
+par(mfrow = c(4, 2), mar = c(2, 4, 2, 1) + 0.1)
+plot(mcmc_output_p2)
+title("MCMC Trace and Posterior Plots (Problem 2)", line = -1, outer = TRUE)
+
+# Summary of posterior distributions
+summary_p2 <- summary(mcmc_output_p2)
+print("Problem 2 Posterior Summary:")
+print(summary_p2)
+
+# Calculate 95% Credible Intervals for parameters
+quantile_p2 <- apply(mcmc_samples_p2, 2, quantile, probs = c(0.025, 0.5, 0.975))
+print("Problem 2 95% Credible Intervals (Median and 95% CI):")
+print(quantile_p2)
+```
+
+Problem 3: Compare the result from problem1 and 2
+```{r}
+# --- Parameter Comparison ---
+print("Comparison of Parameter Estimates (Median and 95% CI):")
+cat("\nProblem 1 (Uniform Priors):\n")
+print(quantile_p1)
+cat("\nProblem 2 (Normal Priors with Correlation):\n")
+print(quantile_p2)
+
+# --- Growth Curve Comparison ---
+# Generate predicted lengths for a range of ages for both problems
+ages_for_plot <- seq(0, 30, length.out = 100) # Extend age range for better visualization
+
+# Problem 1 predictions
+median_params_p1 <- quantile_p1[2,] # Median values
+pred_curve_p1 <- vb_growth(ages_for_plot, median_params_p1["Linf"], median_params_p1["K"], median_params_p1["t0"])
+
+# Calculate 95% Credible Interval for the growth curve (from MCMC samples)
+n_samples_p1 <- nrow(mcmc_samples_p1)
+growth_curves_p1 <- matrix(NA, nrow = n_samples_p1, ncol = length(ages_for_plot))
+for (j in 1:n_samples_p1) {
+  growth_curves_p1[j, ] <- vb_growth(ages_for_plot, mcmc_samples_p1[j, "Linf"], mcmc_samples_p1[j, "K"], mcmc_samples_p1[j, "t0"])
+}
+lower_ci_p1 <- apply(growth_curves_p1, 2, quantile, probs = 0.025)
+upper_ci_p1 <- apply(growth_curves_p1, 2, quantile, probs = 0.975)
+
+# Problem 2 predictions
+median_params_p2 <- quantile_p2[2,] # Median values
+pred_curve_p2 <- vb_growth(ages_for_plot, median_params_p2["Linf"], median_params_p2["K"], median_params_p2["t0"])
+
+# Calculate 95% Credible Interval for the growth curve (from MCMC samples)
+n_samples_p2 <- nrow(mcmc_samples_p2)
+growth_curves_p2 <- matrix(NA, nrow = n_samples_p2, ncol = length(ages_for_plot))
+for (j in 1:n_samples_p2) {
+  growth_curves_p2[j, ] <- vb_growth(ages_for_plot, mcmc_samples_p2[j, "Linf"], mcmc_samples_p2[j, "K"], mcmc_samples_p2[j, "t0"])
+}
+lower_ci_p2 <- apply(growth_curves_p2, 2, quantile, probs = 0.025)
+upper_ci_p2 <- apply(growth_curves_p2, 2, quantile, probs = 0.975)
+
+# Plotting the growth curves and CIs
+plot_df_p1 <- data.frame(age = ages_for_plot, length = pred_curve_p1, lower = lower_ci_p1, upper = upper_ci_p1, Type = "Problem 1 (Uniform Priors)")
+plot_df_p2 <- data.frame(age = ages_for_plot, length = pred_curve_p2, lower = lower_ci_p2, upper = upper_ci_p2, Type = "Problem 2 (FishBase Priors)")
+combined_plot_df <- rbind(plot_df_p1, plot_df_p2)
+
+ggplot() +
+  geom_point(data = data, aes(x = age, y = length), color = "black", size = 2) +
+  geom_line(data = combined_plot_df, aes(x = age, y = length, color = Type), linewidth = 1) +
+  geom_ribbon(data = combined_plot_df, aes(x = age, ymin = lower, ymax = upper, fill = Type), alpha = 0.2) +
+  labs(title = "Comparison of VBGF Growth Curves and 95% CIs",
+       x = "Age (years)",
+       y = "Length (cm)") +
+  scale_color_manual(values = c("Problem 1 (Uniform Priors)" = "blue", "Problem 2 (FishBase Priors)" = "red")) +
+  scale_fill_manual(values = c("Problem 1 (Uniform Priors)" = "lightblue", "Problem 2 (FishBase Priors)" = "pink")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Problem 4: Compare these results with those from last week's grid search
+```{r}
+# --- Placeholder for Grid Search Results (Replace with your actual values) ---
+grid_search_Linf_mle <- 59.32
+grid_search_K_mle <- 0.34
+grid_search_t0_mle <- -0.06
+grid_search_sigma_mle <- 0.10
+
+# Note: Grid search often provides point estimates (MLEs).
+# Estimating CIs from grid search might involve likelihood profiling,
+# which is more complex and usually not done as a direct output of simple grid search.
+# We'll compare the point estimates and discuss conceptual differences in uncertainty.
+
+print("\n--- Comparison with Grid Search Results ---")
+print("Parameter Estimates (Median for MCMC, MLE for Grid Search):")
+cat("Parameter | Problem 1 (MCMC Median) | Problem 2 (MCMC Median) | Grid Search (MLE)\n")
+cat("----------|-----------------------|-----------------------|-------------------\n")
+cat(sprintf("Linf      | %-21.2f | %-21.2f | %-17.2f\n", quantile_p1[2,"Linf"], quantile_p2[2,"Linf"], grid_search_Linf_mle))
+cat(sprintf("K         | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"K"], quantile_p2[2,"K"], grid_search_K_mle))
+cat(sprintf("t0        | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"t0"], quantile_p2[2,"t0"], grid_search_t0_mle))
+cat(sprintf("sigma     | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"sigma"], quantile_p2[2,"sigma"], grid_search_sigma_mle))
+
+# --- Conceptual Comparison ---
+cat("\nConceptual Comparison:\n")
+cat("Grid Search:\n")
+cat("  - Pros: Conceptually simple, good for visualizing likelihood surface, finds point estimates (MLEs).\n")
+cat("  - Cons: Computationally expensive for high dimensions, difficult to quantify uncertainty (CIs) directly, sensitive to grid resolution.\n")
+cat("MCMC (Problem 1 - Uniform Priors):\n")
+cat("  - Pros: Provides full posterior distributions, naturally quantifies uncertainty (credible intervals), can handle complex models.\n")
+cat("  - Cons: Requires careful tuning of proposal distributions, convergence diagnosis can be tricky, might be computationally intensive for very complex models.\n")
+cat("MCMC (Problem 2 - Informative Priors with Correlation):\n")
+cat("  - Pros: Incorporates prior knowledge, leading to potentially more stable and precise estimates, especially with limited data.\n")
+cat("  - Cons: Results are sensitive to prior choice, still shares general MCMC cons.\n")
+cat("Overall:\n")
+cat("  - MCMC offers a more comprehensive statistical inference by providing full posterior distributions and credible intervals, which are a direct measure of uncertainty, unlike point estimates from grid search.\n")
+cat("  - The choice of priors significantly impacts MCMC results; informative priors can stabilize estimates but require careful justification.\n")
+
+# --- Visual comparison (if you have grid search curve) ---
+# If you have the predicted growth curve from your grid search, you can add it to the ggplot from Problem 3.
+# For example:
+# grid_search_pred_curve <- vb_growth(ages_for_plot, grid_search_Linf_mle, grid_search_K_mle, grid_search_t0_mle)
+# plot_df_grid <- data.frame(age = ages_for_plot, length = grid_search_pred_curve, lower = NA, upper = NA, Type = "Grid Search (MLE)")
+# combined_plot_df_all <- rbind(combined_plot_df, plot_df_grid)
+# (Then replot using the combined_plot_df_all)
+```
+改過
+```{r}
+# Load necessary libraries
+library(coda) # For MCMC diagnostics
+library(ggplot2) # For plotting
+```
+
+
+```{r}
+# --- Data from the image ---
+age <- c(0.5, 1, 1.5, 2, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3, 11.3, 12.3, 14)
+length <- c(10.67, 15.81, 26.63, 32.29, 39.85, 47.03, 53.65, 65.15, 49.68, 53.97, 52.69, 55.98, 53.51, 61.32, 67.56)
+data <- data.frame(age, length)
+```
+
+
+```{r}
+# --- VBGF function ---
+vb_growth <- function(age, Linf, K, t0) {
+  Linf * (1 - exp(-K * (age - t0)))
+}
+
+# --- Log-normal likelihood function (custom implementation, as per instruction not to use dlnorm/dnorm) ---
+# This function is already correctly implemented without dnorm/dlnorm, as per previous instructions.
+log_likelihood_lnorm <- function(observed_lengths, predicted_lengths, sigma) {
+  if (sigma <= 0) return(-Inf) # Sigma must be positive
+
+  # Avoid log(0) or log(negative) issues
+  if (any(observed_lengths <= 0) || any(predicted_lengths <= 0)) {
+    return(-Inf)
+  }
+
+  n <- length(observed_lengths)
+  mu_i <- log(predicted_lengths)
+  
+  # Calculate the product part of the likelihood (1 / (yi * sigma * sqrt(2*pi)))
+  # In log space, this becomes -log(yi) - log(sigma) - 0.5 * log(2*pi)
+  log_product_term <- -sum(log(observed_lengths)) - n * log(sigma) - n * 0.5 * log(2 * pi)
+  
+  # Calculate the exponential part of the likelihood (exp(-(log(yi) - mu_i)^2 / (2*sigma^2)))
+  # In log space, this becomes -0.5 * sum(((log(observed_lengths) - mu_i)^2) / (sigma^2))
+  log_exp_term <- -0.5 * sum(((log(observed_lengths) - mu_i)^2) / (sigma^2))
+  
+  log_likelihood <- log_product_term + log_exp_term
+  
+  return(log_likelihood)
+}
+
+# --- Helper function to calculate log prior ---
+log_prior <- function(params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr = 0) {
+  Linf <- params[1]
+  K <- params[2]
+  t0 <- params[3]
+  sigma <- params[4]
+
+  lp <- 0 # Initialize log prior
+
+  # Priors for Problem 1 (Uniform)
+  if (Linf_prior_type == "uniform_P1") {
+    if (Linf < 50 || Linf > 100) return(-Inf)
+  }
+  if (K_prior_type == "uniform_P1") {
+    if (K < 0.01 || K > 0.6) return(-Inf)
+  }
+  if (t0_prior_type == "uniform_P1") {
+    if (t0 < -2 || t0 > 1) return(-Inf)
+  }
+  if (sigma_prior_type == "uniform_P1") {
+    if (sigma < 0.01 || sigma > 0.5) return(-Inf)
+  }
+
+  # Priors for Problem 2 (Normal and Uniform with Correlation)
+  if (Linf_prior_type == "normal_P2" && K_prior_type == "normal_P2") {
+    # Multivariate Normal for Linf and K
+    mean_Linf <- 86
+    mean_K <- 0.13
+    # The image shows "Linf ~ N[86, 10]; K ~ N[0.13, 0.02];"
+    # This implies standard deviations are 10 and 0.02 directly, not variance.
+    # The covariance matrix calculation in the image shows 10^2 and 0.02^2 for variances.
+    sd_Linf <- 10 
+    sd_K <- 0.02 
+    rho <- Linf_K_corr
+
+    # Covariance matrix
+    Sigma <- matrix(c(sd_Linf^2, rho * sd_Linf * sd_K,
+                      rho * sd_Linf * sd_K, sd_K^2), nrow = 2)
+
+    # Check for valid parameters for the multivariate normal distribution
+    if (any(is.na(c(Linf, K))) || !is.finite(Linf) || !is.finite(K)) {
+      return(-Inf)
+    }
+
+    x_minus_mu <- c(Linf - mean_Linf, K - mean_K)
+    
+    # Check if Sigma is invertible and positive definite
+    if (kappa(Sigma) > 1e10 || det(Sigma) <= 0) { # kappa checks for ill-conditioned matrix
+        return(-Inf)
+    }
+    inv_Sigma <- solve(Sigma) # Inverse of covariance matrix
+    det_Sigma <- det(Sigma) # Determinant of covariance matrix
+
+    if (det_Sigma <= 0) return(-Inf) # Sigma must be positive definite
+
+    # Manual calculation of log density of multivariate normal
+    # log_f(x) = -0.5 * (x - mu)^T * Sigma^-1 * (x - mu) - 0.5 * log(det(Sigma)) - (k/2) * log(2*pi)
+    # where k = 2 (number of variables)
+    lp_Linf_K <- -0.5 * (t(x_minus_mu) %*% inv_Sigma %*% x_minus_mu) - 0.5 * log(det_Sigma) - log(2 * pi)
+    lp <- lp + lp_Linf_K
+
+  } else { # If not using the correlated normal, use independent normal priors
+    # Manual calculation of log normal PDF instead of dnorm()
+    # log_f(x) = -log(sigma) - 0.5*log(2*pi) - (x-mu)^2 / (2*sigma^2)
+    if (Linf_prior_type == "normal_P2") {
+      mean_Linf <- 86
+      sd_Linf <- 10 
+      # Check if sd is positive
+      if (sd_Linf <= 0) return(-Inf)
+      lp_Linf <- -log(sd_Linf) - 0.5 * log(2 * pi) - (Linf - mean_Linf)^2 / (2 * sd_Linf^2)
+      lp <- lp + lp_Linf
+    }
+    if (K_prior_type == "normal_P2") {
+      mean_K <- 0.13
+      sd_K <- 0.02
+      # Check if sd is positive
+      if (sd_K <= 0) return(-Inf)
+      lp_K <- -log(sd_K) - 0.5 * log(2 * pi) - (K - mean_K)^2 / (2 * sd_K^2)
+      lp <- lp + lp_K
+    }
+  }
+
+  if (t0_prior_type == "uniform_P2") {
+    if (t0 < -2 || t0 > 1) return(-Inf)
+  }
+  if (sigma_prior_type == "uniform_P2") {
+    if (sigma < 0.01 || sigma > 0.5) return(-Inf)
+  }
+  
+  # Ensure K and sigma are positive (already handled by early return in general, but good to re-check)
+  if (K <= 0 || sigma <= 0) return(-Inf)
+
+  return(lp)
+}
+
+# --- MCMC Sampler Function ---
+run_mcmc <- function(iterations, burn_in_prop, thinning_rate,
+                     Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type,
+                     Linf_K_corr = 0) {
+
+  # Initial parameters (can be random within prior range or from MLE)
+  # Let's start with MLE results from the image for better convergence
+  # Linf = 59.32, K = 0.34, t0 = -0.06, sigma = 0.10
+  current_params <- c(59.32, 0.34, -0.06, 0.10) # Linf, K, t0, sigma
+
+  # Proposal standard deviations for random walk Metropolis-Hastings
+  # These often require tuning for good acceptance rates (20-40%)
+  proposal_sd <- c(Linf = 0.5, K = 0.005, t0 = 0.01, sigma = 0.005) 
+
+  chain <- matrix(NA, nrow = iterations, ncol = length(current_params))
+  colnames(chain) <- c("Linf", "K", "t0", "sigma")
+
+  acceptance_count <- 0
+
+  for (i in 1:iterations) {
+    # Propose new parameters (random walk)
+    proposed_params <- current_params + rnorm(length(current_params), 0, proposal_sd)
+
+    # Calculate log-likelihood for current and proposed parameters
+    # Make sure proposed parameters are valid before calculating likelihood and prior
+    # (e.g., K, sigma, Linf must be positive).
+    # The log_likelihood_lnorm and log_prior functions already handle returning -Inf for invalid params.
+
+    predicted_current <- vb_growth(data$age, current_params[1], current_params[2], current_params[3])
+    log_lik_current <- log_likelihood_lnorm(data$length, predicted_current, current_params[4])
+
+    predicted_proposed <- vb_growth(data$age, proposed_params[1], proposed_params[2], proposed_params[3])
+    log_lik_proposed <- log_likelihood_lnorm(data$length, predicted_proposed, proposed_params[4])
+
+    # Calculate log-prior for current and proposed parameters
+    log_prior_current <- log_prior(current_params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr)
+    log_prior_proposed <- log_prior(proposed_params, Linf_prior_type, K_prior_type, t0_prior_type, sigma_prior_type, Linf_K_corr)
+
+    # Calculate acceptance ratio (in log space)
+    log_alpha <- (log_lik_proposed + log_prior_proposed) - (log_lik_current + log_prior_current)
+
+    # Acceptance step
+    if (log(runif(1)) < log_alpha) {
+      current_params <- proposed_params
+      acceptance_count <- acceptance_count + 1
+    }
+
+    chain[i, ] <- current_params
+  }
+
+  acceptance_rate <- acceptance_count / iterations
+  message(paste("Acceptance Rate:", round(acceptance_rate, 3)))
+
+  # Apply burn-in and thinning
+  burn_in_iterations <- floor(iterations * burn_in_prop)
+  mcmc_samples <- chain[(burn_in_iterations + 1):iterations, ]
+  mcmc_samples_thinned <- mcmc_samples[seq(1, nrow(mcmc_samples), by = thinning_rate), ]
+
+  return(mcmc_samples_thinned)
+}
+```
+
+
+```{r}
+# --- Problem 1 MCMC settings ---
+iterations_p1 <- 50000 
+burn_in_prop_p1 <- 0.2
+thinning_rate_p1 <- 10
+
+message("Running MCMC for Problem 1...")
+mcmc_samples_p1 <- run_mcmc(iterations_p1, burn_in_prop_p1, thinning_rate_p1,
+                            Linf_prior_type = "uniform_P1", K_prior_type = "uniform_P1",
+                            t0_prior_type = "uniform_P1", sigma_prior_type = "uniform_P1")
+
+# Convert to 'mcmc' object for easy diagnostics
+mcmc_output_p1 <- as.mcmc(mcmc_samples_p1)
+
+# Diagnostic Plots (Trace plots and Posterior distributions)
+# Adjust margins for better plot layout and handle potential "figure margins too large" error
+pdf("MCMC_Diagnostics_Problem1_NoDnorm.pdf", width = 8, height = 10) 
+par(mfrow = c(4, 2), mar = c(2, 4, 2, 1) + 0.1) 
+plot(mcmc_output_p1)
+title("MCMC Trace and Posterior Plots (Problem 1)", line = -1, outer = TRUE)
+dev.off() # Close the PDF device
+
+# Summary of posterior distributions
+summary_p1 <- summary(mcmc_output_p1)
+print("Problem 1 Posterior Summary:")
+print(summary_p1)
+
+# Calculate 95% Credible Intervals for parameters
+quantile_p1 <- apply(mcmc_samples_p1, 2, quantile, probs = c(0.025, 0.5, 0.975))
+print("Problem 1 95% Credible Intervals (Median and 95% CI):")
+print(quantile_p1)
+```
+
+
+```{r}
+# --- Problem 2 MCMC settings ---
+iterations_p2 <- 50000 
+burn_in_prop_p2 <- 0.2
+thinning_rate_p2 <- 10
+
+message("Running MCMC for Problem 2...")
+mcmc_samples_p2 <- run_mcmc(iterations_p2, burn_in_prop_p2, thinning_rate_p2,
+                            Linf_prior_type = "normal_P2", K_prior_type = "normal_P2",
+                            t0_prior_type = "uniform_P2", sigma_prior_type = "uniform_P2",
+                            Linf_K_corr = -0.6)
+
+# Convert to 'mcmc' object for easy diagnostics
+mcmc_output_p2 <- as.mcmc(mcmc_samples_p2)
+
+# Diagnostic Plots (Trace plots and Posterior distributions)
+# Adjust margins for better plot layout and handle potential "figure margins too large" error
+pdf("MCMC_Diagnostics_Problem2_NoDnorm.pdf", width = 8, height = 10) 
+par(mfrow = c(4, 2), mar = c(2, 4, 2, 1) + 0.1)
+plot(mcmc_output_p2)
+title("MCMC Trace and Posterior Plots (Problem 2)", line = -1, outer = TRUE)
+dev.off() # Close the PDF device
+
+# Summary of posterior distributions
+summary_p2 <- summary(mcmc_output_p2)
+print("Problem 2 Posterior Summary:")
+print(summary_p2)
+
+# Calculate 95% Credible Intervals for parameters
+quantile_p2 <- apply(mcmc_samples_p2, 2, quantile, probs = c(0.025, 0.5, 0.975))
+print("Problem 2 95% Credible Intervals (Median and 95% CI):")
+print(quantile_p2)
+```
+
+
+```{r}
+# --- Problem 3: Compare the result from problem1 and 2 ---
+# --- Parameter Comparison ---
+print("Comparison of Parameter Estimates (Median and 95% CI):")
+cat("\nProblem 1 (Uniform Priors):\n")
+print(quantile_p1)
+cat("\nProblem 2 (Normal Priors with Correlation):\n")
+print(quantile_p2)
+
+# --- Growth Curve Comparison ---
+# Generate predicted lengths for a range of ages for both problems
+ages_for_plot <- seq(0, 30, length.out = 100) # Extend age range for better visualization
+
+# Problem 1 predictions
+median_params_p1 <- quantile_p1[2,] # Median values
+pred_curve_p1 <- vb_growth(ages_for_plot, median_params_p1["Linf"], median_params_p1["K"], median_params_p1["t0"])
+
+# Calculate 95% Credible Interval for the growth curve (from MCMC samples)
+n_samples_p1 <- nrow(mcmc_samples_p1)
+growth_curves_p1 <- matrix(NA, nrow = n_samples_p1, ncol = length(ages_for_plot))
+for (j in 1:n_samples_p1) {
+  growth_curves_p1[j, ] <- vb_growth(ages_for_plot, mcmc_samples_p1[j, "Linf"], mcmc_samples_p1[j, "K"], mcmc_samples_p1[j, "t0"])
+}
+lower_ci_p1 <- apply(growth_curves_p1, 2, quantile, probs = 0.025)
+upper_ci_p1 <- apply(growth_curves_p1, 2, quantile, probs = 0.975)
+
+# Problem 2 predictions
+median_params_p2 <- quantile_p2[2,] # Median values
+pred_curve_p2 <- vb_growth(ages_for_plot, median_params_p2["Linf"], median_params_p2["K"], median_params_p2["t0"])
+
+# Calculate 95% Credible Interval for the growth curve (from MCMC samples)
+n_samples_p2 <- nrow(mcmc_samples_p2)
+growth_curves_p2 <- matrix(NA, nrow = n_samples_p2, ncol = length(ages_for_plot))
+for (j in 1:n_samples_p2) {
+  growth_curves_p2[j, ] <- vb_growth(ages_for_plot, mcmc_samples_p2[j, "Linf"], mcmc_samples_p2[j, "K"], mcmc_samples_p2[j, "t0"])
+}
+lower_ci_p2 <- apply(growth_curves_p2, 2, quantile, probs = 0.025)
+upper_ci_p2 <- apply(growth_curves_p2, 2, quantile, probs = 0.975)
+
+# Plotting the growth curves and CIs
+plot_df_p1 <- data.frame(age = ages_for_plot, length = pred_curve_p1, lower = lower_ci_p1, upper = upper_ci_p1, Type = "Problem 1 (Uniform Priors)")
+plot_df_p2 <- data.frame(age = ages_for_plot, length = pred_curve_p2, lower = lower_ci_p2, upper = upper_ci_p2, Type = "Problem 2 (FishBase Priors)")
+combined_plot_df <- rbind(plot_df_p1, plot_df_p2)
+
+ggplot() +
+  geom_point(data = data, aes(x = age, y = length), color = "black", size = 2) +
+  geom_line(data = combined_plot_df, aes(x = age, y = length, color = Type), linewidth = 1) +
+  geom_ribbon(data = combined_plot_df, aes(x = age, ymin = lower, ymax = upper, fill = Type), alpha = 0.2) +
+  labs(title = "Comparison of VBGF Growth Curves and 95% CIs",
+       x = "Age (years)",
+       y = "Length (cm)") +
+  scale_color_manual(values = c("Problem 1 (Uniform Priors)" = "blue", "Problem 2 (FishBase Priors)" = "red")) +
+  scale_fill_manual(values = c("Problem 1 (Uniform Priors)" = "lightblue", "Problem 2 (FishBase Priors)" = "pink")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+```{r}
+# --- Problem 4: Compare these results with those from last week's grid search ---
+# --- Placeholder for Grid Search Results (Replace with your actual values) ---
+grid_search_Linf_mle <- 59.32
+grid_search_K_mle <- 0.34
+grid_search_t0_mle <- -0.06
+grid_search_sigma_mle <- 0.10
+
+print("\n--- Comparison with Grid Search Results ---")
+print("Parameter Estimates (Median for MCMC, MLE for Grid Search):")
+cat("Parameter | Problem 1 (MCMC Median) | Problem 2 (MCMC Median) | Grid Search (MLE)\n")
+cat("----------|-----------------------|-----------------------|-------------------\n")
+cat(sprintf("Linf      | %-21.2f | %-21.2f | %-17.2f\n", quantile_p1[2,"Linf"], quantile_p2[2,"Linf"], grid_search_Linf_mle))
+cat(sprintf("K         | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"K"], quantile_p2[2,"K"], grid_search_K_mle))
+cat(sprintf("t0        | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"t0"], quantile_p2[2,"t0"], grid_search_t0_mle))
+cat(sprintf("sigma     | %-21.3f | %-21.3f | %-17.3f\n", quantile_p1[2,"sigma"], quantile_p2[2,"sigma"], grid_search_sigma_mle))
+
+# --- Conceptual Comparison ---
+cat("\nConceptual Comparison:\n")
+cat("Grid Search:\n")
+cat("  - Pros: Conceptually simple, good for visualizing likelihood surface, finds point estimates (MLEs).\n")
+cat("  - Cons: Computationally expensive for high dimensions, difficult to quantify uncertainty (CIs) directly, sensitive to grid resolution.\n")
+cat("MCMC (Problem 1 - Uniform Priors):\n")
+cat("  - Pros: Provides full posterior distributions, naturally quantifies uncertainty (credible intervals), can handle complex models.\n")
+cat("  - Cons: Requires careful tuning of proposal distributions, convergence diagnosis can be tricky, might be computationally intensive for very complex models.\n")
+cat("MCMC (Problem 2 - Informative Priors with Correlation):\n")
+cat("  - Pros: Incorporates prior knowledge, leading to potentially more stable and precise estimates, especially with limited data.\n")
+cat("  - Cons: Results are sensitive to prior choice, still shares general MCMC cons.\n")
+cat("Overall:\n")
+cat("  - MCMC offers a more comprehensive statistical inference by providing full posterior distributions and credible intervals, which are a direct measure of uncertainty, unlike point estimates from grid search.\n")
+cat("  - The choice of priors significantly impacts MCMC results; informative priors can stabilize estimates but require careful justification.\n")
+```
+
+
+```{r}
+# --- Visual comparison (if you have grid search curve) ---
+# If you have the predicted growth curve from your grid search, you can add it to the ggplot from Problem 3.
+# For example:
+# grid_search_pred_curve <- vb_growth(ages_for_plot, grid_search_Linf_mle, grid_search_K_mle, grid_search_t0_mle)
+# plot_df_grid <- data.frame(age = ages_for_plot, length = grid_search_pred_curve, lower = NA, upper = NA, Type = "Grid Search (MLE)")
+# combined_plot_df_all <- rbind(combined_plot_df, plot_df_grid)
+# (Then replot using the combined_plot_df_all)
+```
+
+
+ChatGPT failed
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# ----------------------------------------------
+# Given: MLE estimates from VBGF (Von Bertalanffy Growth Function)
+# ----------------------------------------------
+L_inf_mle <- 59.32  # Asymptotic length
+K_mle <- 0.34       # Growth coefficient
+t0_mle <- -0.06     # Theoretical age at length zero
+sigma <- 0.10       # Standard deviation of lognormal error
+
+# Simulate age data (as in real fish data collection)
+ages <- seq(0.5, 15, by = 0.5)
+
+# Generate true lengths from the VBGF
+true_lengths <- L_inf_mle * (1 - exp(-K_mle * (ages - t0_mle)))
+
+# Add lognormal errors to simulate observations
+observed_lengths <- true_lengths * exp(rnorm(length(true_lengths), mean = 0, sd = sigma))
+
+# Plot observed data
+plot(ages, observed_lengths, pch = 16, xlab = "Age", ylab = "Length (cm)", main = "Simulated Fish Length Data")
+
+# ----------------------------------------------
+# MCMC Setup: Metropolis-Hastings
+# ----------------------------------------------
+
+# Likelihood function (log-scale)
+log_likelihood <- function(params, age, length) {
+  L_inf <- params[1]
+  K <- params[2]
+  t0 <- params[3]
+  
+  pred_length <- L_inf * (1 - exp(-K * (age - t0)))
+  log_pred <- log(pred_length)
+  log_obs <- log(length)
+  
+  ll <- sum(dnorm(log_obs, mean = log_pred, sd = sigma, log = TRUE))
+  return(ll)
+}
+
+# Prior: independent uniform priors for all parameters
+log_prior <- function(params) {
+  L_inf <- params[1]
+  K <- params[2]
+  t0 <- params[3]
+  
+  if (L_inf < 50 || L_inf > 80 || K < 0.1 || K > 0.6 || t0 < -2 || t0 > 0) {
+    return(-Inf)
+  } else {
+    return(0)  # log(1)
+  }
+}
+
+# Posterior = Likelihood + Prior (log-scale)
+log_posterior <- function(params, age, length) {
+  return(log_likelihood(params, age, length) + log_prior(params))
+}
+
+# MCMC parameters
+n_iter <- 10000
+params <- matrix(NA, ncol = 3, nrow = n_iter)
+colnames(params) <- c("L_inf", "K", "t0")
+
+# Initial guess
+current <- c(55, 0.3, -0.5)
+params[1, ] <- current
+current_log_post <- log_posterior(current, ages, observed_lengths)
+
+# Proposal SDs for each parameter (tune as needed)
+proposal_sd <- c(1, 0.02, 0.05)
+
+# Metropolis-Hastings Sampling
+for (i in 2:n_iter) {
+  proposal <- rnorm(3, mean = current, sd = proposal_sd)
+  proposal_log_post <- log_posterior(proposal, ages, observed_lengths)
+  
+  log_accept_ratio <- proposal_log_post - current_log_post
+  
+  if (log(runif(1)) < log_accept_ratio) {
+    current <- proposal
+    current_log_post <- proposal_log_post
+  }
+  
+  params[i, ] <- current
+}
+
+# ----------------------------------------------
+# Posterior summaries
+# ----------------------------------------------
+burn_in <- 1000
+post_samples <- params[-(1:burn_in), ]
+
+summary_stats <- apply(post_samples, 2, function(x) {
+  c(mean = mean(x), median = median(x), sd = sd(x),
+    CI_2.5 = quantile(x, 0.025), CI_97.5 = quantile(x, 0.975))
+})
+
+print(round(summary_stats, 3))
+
+# ----------------------------------------------
+# Posterior plots
+# ----------------------------------------------
+par(mfrow = c(3,2))
+for (j in 1:3) {
+  plot(post_samples[,j], type = "l", main = colnames(post_samples)[j], ylab = "Value", xlab = "Iteration")
+  hist(post_samples[,j], breaks = 30, main = paste("Posterior of", colnames(post_samples)[j]),
+       xlab = colnames(post_samples)[j], col = "lightblue", border = "white")
+}
+
+```
+Grok
+```{r}
+# Load required packages
+library(LaplacesDemon)   # For MCMC sampling
+library(coda)            # For MCMC diagnostics
+library(ggplot2)         # For plotting
+library(reshape2)        # For data manipulation
+library(mvtnorm)         # For multivariate normal distribution (dmvnorm)
+
+# Step 1: Define the data (age and length of Pacific hake)
+age <- c(0.5, 1, 1.5, 2, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3, 11.3, 12.3, 14)
+length <- c(10.67, 15.81, 26.63, 32.29, 39.85, 47.03, 53.65, 65.15, 49.68, 53.97, 52.69, 55.98, 53.51, 61.32, 67.56)
+# Corrected data values based on image in previous question
+
+# Step 2: Define the VBGF likelihood and priors
+vbgt_model <- function(parm, data) {
+  Linf <- parm[1]
+  K <- parm[2]
+  t0 <- parm[3]
+  sigma <- parm[4]
+
+  # Check for invalid parameter values before calculations
+  if (Linf <= 0 || K <= 0 || sigma <= 0) {
+      return(list(LP = -Inf, Dev = Inf, Monitor = NA, yhat = NA, parm = parm))
+  }
+
+  age <- data$age
+  pred_length <- Linf * (1 - exp(-K * (age - t0)))
+  
+  if (any(pred_length <= 0) || any(is.na(pred_length))) {
+      return(list(LP = -Inf, Dev = Inf, Monitor = NA, yhat = NA, parm = parm))
+  }
+
+  if (any(data$length <= 0)) { # Observed lengths must be positive for log-normal
+      return(list(LP = -Inf, Dev = Inf, Monitor = NA, yhat = NA, parm = parm))
+  }
+  
+  LL <- sum(dnorm(log(data$length), mean = log(pred_length), sd = sigma, log = TRUE))
+  
+  mean_Linf_K <- c(86, 0.13)
+  var_Linf <- 10^2
+  var_K <- 0.02^2
+  cov_Linf_K <- -0.6 * sqrt(var_Linf) * sqrt(var_K)
+  cov_matrix <- matrix(c(var_Linf, cov_Linf_K, cov_Linf_K, var_K), nrow = 2)
+  
+  if (det(cov_matrix) <= 0) {
+      return(list(LP = -Inf, Dev = Inf, Monitor = NA, yhat = NA, parm = parm))
+  }
+
+  LP_Linf_K <- dmvnorm(c(Linf, K), mean = mean_Linf_K, sigma = cov_matrix, log = TRUE)
+  
+  LP_t0 <- dunif(t0, min = -2, max = 1, log = TRUE)
+  
+  LP_sigma <- dunif(sigma, min = 0.01, max = 0.5, log = TRUE)
+  
+  LP <- LL + LP_Linf_K + LP_t0 + LP_sigma
+  
+  Dev <- -2 * LL
+  
+  # Monitor values should match the `mon.names` in `data_list`
+  Monitor <- c(Linf, K, t0, sigma) 
+
+  return(list(LP = LP, Dev = Dev, Monitor = Monitor, yhat = pred_length, parm = parm))
+}
+
+# Step 3: Prepare data for LaplacesDemon
+# Add mon.names and parm.names to the data_list
+data_list <- list(
+  age = age,
+  length = length,
+  # These names should correspond to the order of parameters in 'parm'
+  parm.names = c("Linf", "K", "t0", "sigma"), 
+  # These names should correspond to the order of values in 'Monitor'
+  mon.names = c("Linf.mon", "K.mon", "t0.mon", "sigma.mon") # You can name them as you like
+)
+
+# Initial values for parameters
+Initial.Values <- c(Linf = 80, K = 0.15, t0 = 0, sigma = 0.1)
+
+# Step 4: Run MCMC with LaplacesDemon
+iterations <- 50000
+burnin_prop <- 0.2
+thinning_rate <- 10
+thin_interval <- thinning_rate
+
+message("Running MCMC with LaplacesDemon...")
+mcmc_result <- LaplacesDemon(Model = vbgt_model, Data = data_list, Initial.Values = Initial.Values,
+                             Iterations = iterations, Status = 1000, Thinning = thin_interval,
+                             Algorithm = "HARM")
+
+# Step 5: Extract posterior samples after burn-in and thinning
+posterior_samples <- as.mcmc(mcmc_result$Posterior2)
+# Column names are already set by parm.names from data_list
+# colnames(posterior_samples) <- c("Linf", "K", "t0", "sigma") # Not needed if parm.names is set
+
+posterior_summary <- summary(posterior_samples)
+
+# Step 6: Generate trace and posterior density plots
+posterior_df <- as.data.frame(posterior_samples)
+
+trace_plots <- ggplot(melt(posterior_df, id.vars = NULL), aes(x = rep(1:nrow(posterior_df), times = ncol(posterior_df)), y = value)) +
+  geom_line() +
+  facet_wrap(~variable, scales = "free_y", ncol = 1) +
+  labs(x = "Iteration (Thinned)", y = "Value") +
+  theme_minimal() +
+  ggtitle("Trace Plots of MCMC Chains")
+
+posterior_density_plots <- ggplot(melt(posterior_df, id.vars = NULL), aes(x = value)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  facet_wrap(~variable, scales = "free", ncol = 1) +
+  labs(x = "Value", y = "Density") +
+  theme_minimal() +
+  ggtitle("Posterior Density Plots")
+
+# Step 7: Compute 95% credible intervals for the growth curve
+age_seq <- seq(0, 30, length.out = 100)
+growth_curves <- matrix(NA, nrow = nrow(posterior_df), ncol = length(age_seq))
+
+for (i in 1:nrow(posterior_df)) {
+  Linf <- posterior_df$Linf[i]
+  K <- posterior_df$K[i]
+  t0 <- posterior_df$t0[i]
+  
+  if (Linf > 0 && K > 0) {
+    growth_curves[i, ] <- Linf * (1 - exp(-K * (age_seq - t0)))
+  } else {
+    growth_curves[i, ] <- NA
+  }
+}
+
+growth_curves <- growth_curves[complete.cases(growth_curves), ]
+
+median_growth <- apply(growth_curves, 2, median, na.rm = TRUE)
+ci_lower <- apply(growth_curves, 2, quantile, probs = 0.025, na.rm = TRUE)
+ci_upper <- apply(growth_curves, 2, quantile, probs = 0.975, na.rm = TRUE)
+
+# Step 8: Plot observed data with median growth curve and 95% CI
+growth_plot_data <- data.frame(Age = age_seq, Median = median_growth, Lower = ci_lower, Upper = ci_upper)
+observed_data <- data.frame(Age = age, Length = length)
+
+growth_plot <- ggplot() +
+  geom_ribbon(data = growth_plot_data, aes(x = Age, ymin = Lower, ymax = Upper), fill = "lightblue", alpha = 0.5) +
+  geom_line(data = growth_plot_data, aes(x = Age, y = Median), color = "blue") +
+  geom_point(data = observed_data, aes(x = Age, y = Length), color = "black") +
+  labs(x = "Age (years)", y = "Length (cm)", title = "Observed Length-at-Age with 95% Credible Interval") +
+  theme_minimal()
+
+# Save plots
+ggsave("trace_plots_laplacesdemon.png", trace_plots, width = 8, height = 10)
+ggsave("posterior_density_plots_laplacesdemon.png", posterior_density_plots, width = 8, height = 10)
+ggsave("growth_curve_laplacesdemon.png", growth_plot, width = 8, height = 6)
+
+# Print posterior summary
+print(posterior_summary)
+
+# Step 9: Compare with MLE results from the first image
+mle_results <- data.frame(Parameter = c("Linf", "K", "t0", "sigma"),
+                           MLE = c(59.32, 0.34, -0.06, 0.10))
+mcmc_means <- colMeans(posterior_df)
+comparison <- data.frame(Parameter = c("Linf", "K", "t0", "sigma"),
+                         MCMC_Mean = mcmc_means,
+                         MLE = mle_results$MLE)
+print(comparison)
+```
+
