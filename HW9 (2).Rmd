@@ -1,0 +1,134 @@
+---
+title: "HW7"
+author: "Annie"
+date: "2025-04-17"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Use the dominant copepod species data (from HW1).
+
+Perform cluster analysis of stations based on percent composition data of the dominant species, and tell your story about these copepod data.
+
+Tasks:
+
+Compare the results based on different distance measures.
+
+Compare the results based on different cluster algorithms.
+
+Determine the final number of clusters and describe the differences among them.
+
+You are allowed to use any built-in functions in Matlab or R, such as kmeans.m, clusterdata.m, etc.
+```{r}
+copepod_data <- read.table("copepod_composition.txt", header = TRUE)
+cop_density <- read.table("cop_density.txt", header = TRUE)
+species_list <- read.table("copepodSPlist.txt", fill=T, sep = "\n")
+
+row.names(copepod_data) <- species_list$V1
+
+
+# Prepare an empty matrix to store density data for all species
+all_species_density <- matrix(0, nrow = nrow(copepod_data), ncol = ncol(copepod_data))
+row.names(all_species_density) <- row.names(copepod_data)
+colnames(all_species_density) <- colnames(copepod_data)
+
+# Loop through each species (row) and each station/sample (column) to calculate density
+for (i in 1:nrow(copepod_data)) {
+  for (j in 1:ncol(copepod_data)) {
+    # Species proportion × corresponding total density at that station
+    all_species_density[i, j] <- copepod_data[i, j] / 100 * cop_density[j, 1]
+  }
+}
+
+# Identify dominant species
+# A dominant species is defined as one that makes up ≥5% of the total composition at any cruise-station
+threshold <- 5  # Threshold in percent
+
+# Find species that exceed the threshold at least once across all stations
+dominant_species <- rownames(copepod_data)[apply(copepod_data, 1, function(x) any(x >= threshold))]
+
+# Display the dominant species
+print(dominant_species)
+
+
+```
+Compare the results based on different distance measures.
+```{r}
+#select dominant species only
+dominant_comp <- copepod_data[rownames(copepod_data) %in% dominant_species, ] 
+
+library(vegan)  # for Bray-Curtis
+library(cluster)  # for clustering visualization
+library(factoextra)  # for visualizing clusters
+
+# Transpose: clustering is based on stations (columns), not species (rows)
+dominant_t <- t(dominant_comp)
+
+# Standardize data (optional, based on range)
+dominant_scaled <- scale(dominant_t)
+
+# Different distance measures
+dist_euclidean <- dist(dominant_scaled, method = "euclidean")
+dist_bray <- vegdist(dominant_t, method = "bray")
+
+# Hierarchical clustering
+hc_euclidean <- hclust(dist_euclidean, method = "ward.D2")
+hc_bray <- hclust(dist_bray, method = "ward.D2")
+
+# Plot dendrograms
+par(mar = c(5, 4, 4, 2))
+plot(hc_euclidean, main = "Hierarchical Clustering (Euclidean)", xlab = "", sub = "", cex=0.7)
+plot(hc_bray, main = "Hierarchical Clustering (Bray-Curtis)", xlab = "", sub = "", cex=0.7)
+
+```
+Compare the results based on different cluster algorithms.
+```{r}
+# Determine number of clusters with Elbow method
+fviz_nbclust(dominant_scaled, kmeans, method = "wss") + 
+  labs(subtitle = "Elbow Method for K-means")
+
+# Perform K-means with optimal k (say k = 3)
+set.seed(123)
+km_res <- kmeans(dominant_scaled, centers = 3, nstart = 25)
+
+
+# Plot clustering result
+cluster_plot <- fviz_cluster(km_res, data = dominant_scaled, geom = "point",
+                             main = "K-means Clustering (k = 3)")
+
+# Add location name
+library(ggplot2)
+cluster_plot + 
+  geom_text(aes(label = rownames(dominant_scaled)), 
+            vjust = -0.8, size = 3)
+
+```
+Determine the final number of clusters and describe the differences among them.
+```{r}
+# Add cluster labels to data
+cluster_groups <- km_res$cluster
+
+# Check species composition differences by cluster
+dominant_with_cluster <- cbind(dominant_t, cluster = factor(cluster_groups))
+
+# Convert the matrix to a data frame
+dominant_df <- as.data.frame(dominant_with_cluster)
+
+# Add the cluster result from K-means as a new column
+dominant_df$cluster <- factor(km_res$cluster)
+
+# Calculate the average species composition for each cluster
+cluster_summary <- aggregate(. ~ cluster, data = dominant_df, FUN = mean)
+
+
+print(cluster_summary)
+
+```
+Cluster 1 appears to be dominated by certain larger copepod species like Acartia pacifica and Calanus sinicus, along with some Paracalanus species.
+Cluster 2 shows a strong presence of Paracalanus pavus and several smaller cyclopoid copepods like Oithona similis and Corycaeus (Ditrichocorycaeus) affinis.
+Cluster 3 is characterized by high abundances of other small cyclopoid copepods such as Parvocalanus crassirostris, Oithona species, and Euterpina acutifrons, as well as Canthocalanus pauper.

@@ -1,0 +1,141 @@
+---
+title: "HW5"
+author: "Annie"
+date: "2025-03-29"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. Write a function to do root-finding based on Newton-Raphson method and solve for “sin(x)/x-0.6=0”. (Note: write your own codes, set tol=0.000001, try different initial values)
+```{r}
+f <- function(x) sin(x)/x - 0.6
+curve(f, from = 0.5, to = 10, col = "blue", lwd = 2, ylab = "f(x)", xlab = "x")
+abline(h = 0, col = "red", lty = 2)
+#root~2
+```
+TEST
+```{r}
+uniroot(f, c(1,2)) 
+#-> the root of the function is very close to 2 at 1.660036
+```
+MY FUNCTION
+```{r}
+library("numDeriv")# Package for computing f'(x)
+```
+
+```{r}
+
+# Newton-Raphson function: only takes one initial value x0
+newton.raphson <- function(ff, x0, tol = 1e-6, n = 1000) {
+  k <- numeric(n)  # store each estimate
+  
+  for (i in 1:n) {
+    dx <- genD(func = ff, x = x0)$D[1]  # f'(x0)
+    if (dx == 0) {
+      stop("Derivative is zero. Cannot continue.")
+    }
+    
+    x1 <- x0 - ff(x0) / dx
+    k[i] <- x1
+    
+    if (abs(x1 - x0) < tol) {
+      return(list('root approximation' = x1, 'iterations' = k[1:i]))
+    }
+    
+    x0 <- x1
+  }
+  stop("Too many iterations without convergence.")
+}
+
+```
+
+```{r}
+# Find positive root
+result_pos <- newton.raphson(f, 2)
+print(result_pos$`root approximation`)
+
+# Find negative root
+result_neg <- newton.raphson(f, -2)
+print(result_neg$`root approximation`)
+
+```
+
+2. Use data from Vidal (1980) and find the Belehradek’s equation for C2, C3, C4, C5 by minimizing the least square error, and set b=-2.05. Plot the data and fitted curves. (Hint: use optim in R or fminsearch in Matlab)
+
+```{r}
+
+data <- suppressWarnings(read.table("VidalTvsDuration.txt", header = TRUE))
+
+# Define the Belehradek equation
+belehradek <- function(temp, a, c) {
+  a * (temp + c)^(-2.05)
+}
+
+# Function to define the least squared error
+least_squares <- function(params, temp, duration) {
+  a <- params[1]
+  c <- params[2]
+  predicted <- belehradek(temp, a, c)
+  sum((predicted - duration)^2)
+}
+
+# Fitting C2
+fit_C2 <- optim(par = c(1, 1), fn = least_squares, temp = data$X.tempearture, duration = data$C2)
+a_C2 <- fit_C2$par[1] #The "a" values obtained after fitting.
+c_C2 <- fit_C2$par[2] #The "c" values obtained after fitting.
+
+# Fitting C3
+fit_C3 <- optim(par = c(1, 1), fn = least_squares, temp = data$X.tempearture, duration = data$C3)
+a_C3 <- fit_C3$par[1]
+c_C3 <- fit_C3$par[2]
+
+# Fitting C4
+fit_C4 <- optim(par = c(1, 1), fn = least_squares, temp = data$X.tempearture, duration = data$C4)
+a_C4 <- fit_C4$par[1]
+c_C4 <- fit_C4$par[2]
+
+# Fitting C5
+fit_C5 <- optim(par = c(1, 1), fn = least_squares, temp = data$X.tempearture, duration = data$C5)
+a_C5 <- fit_C5$par[1]
+c_C5 <- fit_C5$par[2]
+
+# Generate data for the fitted curve
+temp_range <- seq(min(data$X.tempearture), max(data$X.tempearture), length.out = 100)
+fit_C2_data <- data.frame(Temperature = temp_range, Duration = belehradek(temp_range, a_C2, c_C2), Species = "C2")
+fit_C3_data <- data.frame(Temperature = temp_range, Duration = belehradek(temp_range, a_C3, c_C3), Species = "C3")
+fit_C4_data <- data.frame(Temperature = temp_range, Duration = belehradek(temp_range, a_C4, c_C4), Species = "C4")
+fit_C5_data <- data.frame(Temperature = temp_range, Duration = belehradek(temp_range, a_C5, c_C5), Species = "C5")
+fit_data <- rbind(fit_C2_data, fit_C3_data, fit_C4_data, fit_C5_data)
+
+# original data (don't change the original data so create a new original data)
+original_data <- data.frame(
+  Temperature = data$X.tempearture,
+  C2 = data$C2,
+  C3 = data$C3,
+  C4 = data$C4,
+  C5 = data$C5
+)
+
+library(ggplot2)
+library(reshape2)
+
+# Convert the raw data into long format
+original_data_melted <- melt(original_data, id.vars = "Temperature", variable.name = "Species", value.name = "Duration")
+
+# 繪製數據和擬合曲線
+ggplot() +
+  geom_point(data = original_data_melted, aes(x = Temperature, y = Duration, color = Species)) +
+  geom_line(data = fit_data, aes(x = Temperature, y = Duration, color = Species)) +
+  labs(title = "Belehradek's Equation Fitting", x = "Temperature", y = "Stage Duration") +
+  ylim(0, 30) +
+  xlim(8, 16) +
+  theme_minimal()
+```
+
+
+

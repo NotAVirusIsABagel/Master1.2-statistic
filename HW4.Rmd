@@ -57,6 +57,7 @@ for (i in 1:B) {
 Compute confidence intervals (Percentile method)
 ```{r}
 CI_percentile <- quantile(b1_bootstrap, probs = c(0.025, 0.975))
+print(CI_percentile)
 ```
 
 Compute bias-corrected (BC) confidence intervals for b1 using the bootstrap method
@@ -83,6 +84,8 @@ CI_BC <- quantile(b1_bootstrap, probs = c(alpha1, alpha2))
 # quantile(b1_bootstrap, probs = c(alpha1, alpha2))`  
 # extracts the bootstrap estimates corresponding to the adjusted percentiles,  
 # providing the bias-corrected 95% confidence interval for b1.
+
+print(CI_BC)
 ```
 
 BCa method (requires computing acceleration value a, detailed derivation omitted) (formula at P15)
@@ -98,7 +101,7 @@ p_value <- mean(b1_bootstrap < 0) * 2  # Two-tailed test
 
 # Display results
 list(
-  coef_original = coef_original,
+  #coef_original = coef_original,
   CI_percentile = CI_percentile,
   CI_BC = CI_BC,
   CI_BCa = CI_BCa,
@@ -111,72 +114,60 @@ list(
 
 Extract density
 ```{r}
-copepod_data <- read.table("copepod_composition.txt", header = FALSE)
-cop_density <- read.table("cop_density.txt", header = FALSE)
-species_list <- readLines("copepodSPlist.txt")
-d <- readLines("copepodSPlist.txt")
+copepod_data <- read.table("copepod_composition.txt", header = TRUE)
+cop_density <- read.table("cop_density.txt", header = TRUE)
+species_list <- read.table("copepodSPlist.txt", fill=T, sep = "\n")
 
-# set column names）
-colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+row.names(copepod_data) <- species_list$V1
 
-library(dplyr)
-copepod_data <- dplyr::mutate_if(copepod_data, is.numeric, function(x) x / 100)
+Oncaea <- copepod_data ["Oncaea venusta", ]/100
+Pauper <- copepod_data ["Canthocalanus pauper", ]/100
 
-#Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
-copepod_data <- copepod_data[-1, ]  # delete 1st row
-species_list <- species_list[-length(species_list)]
-
-rownames(copepod_data) <- species_list
-
-copepod_data[] <- lapply(copepod_data, as.numeric) #change character into number so that we can use lapply
-
-
-# count density
-#sweep(data for manipulation, 1 for rows; 2 for columns,function to apply ex.* for multiply )
-# make sure cop_density$V1 correctly matches each column
-copepod_density <- apply(copepod_data, 2, function(x) x * rep(cop_density$V1/100, length.out = length(x)))
-```
-
-
-```{r}
-B <- 999
-n <- length(copepod_density["Oncaea venusta", ])
-diff_bootstrap <- numeric(B)
-
-
-density1 <- copepod_density["Oncaea venusta", ] 
-density2 <- copepod_density["Canthocalanus pauper", ]  
-
-
-
-for (i in 1:B) {
-  idx <- floor(runif(n, min = 1, max = n))  
-  density1_sampled <- density1[idx]  
-  density2_sampled <- density2[idx]  
-  diff_bootstrap[i] <- mean(density1_sampled) - mean(density2_sampled)  # Compute mean difference
+Oncaea_new <- matrix(0, nrow = 1 , ncol = length(species_list$V1))
+row.names(Oncaea_new) <- "Oncaea venusta"
+for( i in 1: length(cop_density$X1119)) {
+  Oncaea_new[ ,i] <- Oncaea[, i]*cop_density[i,]
+  }
+  
+Pauper_new <- matrix(0, nrow = 1 , ncol = length(species_list$V1))
+row.names(Pauper_new) <- "Canthocalanus pauper"
+for( i in 1:length(cop_density$X1119)) {
+  Pauper_new[ ,i] <- Pauper[, i]*cop_density[i,]
 }
 
+```
 
-diff_original <- mean(density1) - mean(density2) # Compute original mean difference
-diff_bootstrap <- c(diff_bootstrap, diff_original)  # Append original statistic to bootstrap distribution
+```{r}
+# Define the bootstrap function
+bootstrap_stat <- function(data, indices) {
+  density1_sampled <- data$density1[indices]
+  density2_sampled <- data$density2[indices]
+  return(mean(density1_sampled - density2_sampled))
+}
 
-# Percentile CI
-CI_percentile_diff <- quantile(diff_bootstrap, probs = c(0.025, 0.975)) # Compute 95% percentile CI
+# Set Bootstrap parameters
+B <- 999  
+n <- length(Oncaea_new[1, ])  
 
-# BCa method 
-z0_diff <- qnorm(mean(diff_bootstrap < diff_original)) # Compute bias correction term
-a_hat_diff <- sum((diff_bootstrap - mean(diff_bootstrap))^3) / 
-  (6 * sum((diff_bootstrap - mean(diff_bootstrap))^2)^(3/2))# Compute acceleration factor
-alpha1_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.025)) / (1 - a_hat_diff * (z0_diff + qnorm(0.025))))
-alpha2_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.975)) / (1 - a_hat_diff * (z0_diff + qnorm(0.975))))#quantiles of the confidence interval
-CI_BCa_diff <- quantile(diff_bootstrap, probs = c(alpha1_BCa_diff, alpha2_BCa_diff))# Compute BCa CI
+# Get original density data
+density1 <- as.numeric(Oncaea_new["Oncaea venusta", ])  
+density2 <- as.numeric(Pauper_new["Canthocalanus pauper", ])  
 
-list(
-  Percentile_CI_for_Difference = CI_percentile_diff,  # Confidence interval for the mean difference calculated using percentile method.
-  BCa_CI_for_Difference = CI_BCa_diff  # Confidence interval for the mean difference calculated using BCa correction method.
-)
+# **Store data in a DataFrame for easy access**
+boot_data <- data.frame(density1 = density1, density2 = density2)
+
+# **Perform Bootstrap**
+library(boot)
+boot_results <- boot(data = boot_data, statistic = bootstrap_stat, R = B)
+
+# **Compute BCa confidence interval**
+bca_result <- boot.ci(boot_results, type = "bca")
+
+# **Print the results**
+print(paste("Original mean difference:", mean(density1 - density2)))
+print(paste("Bootstrap mean difference:", mean(boot_results$t)))
+print(paste("BCa confidence interval:", bca_result$bca[4], "to", bca_result$bca[5]))
 
 
 ```
-
 

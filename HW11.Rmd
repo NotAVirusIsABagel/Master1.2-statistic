@@ -1,0 +1,122 @@
+---
+title: "HW10"
+author: "Annie"
+date: "2025-05-07"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+copepod_data <- read.table("copepod_composition.txt", header = TRUE)
+cop_density <- read.table("cop_density.txt", header = FALSE)
+species_list <- read.table("copepodSPlist.txt", fill=T, sep = "\n")
+
+row.names(copepod_data) <- species_list$V1
+
+
+# Prepare an empty matrix to store density data for all species
+all_species_density <- matrix(0, nrow = nrow(copepod_data), ncol = ncol(copepod_data))
+row.names(all_species_density) <- row.names(copepod_data)
+colnames(all_species_density) <- colnames(copepod_data)
+
+# Loop through each species (row) and each station/sample (column) to calculate density
+for (i in 1:nrow(copepod_data)) {
+  for (j in 1:ncol(copepod_data)) {
+    # Species proportion × corresponding total density at that station
+    all_species_density[i, j] <- copepod_data[i, j] / 100 * cop_density[j, 1]
+  }
+}
+
+# Identify dominant species
+# A dominant species is defined as one that makes up ≥5% of the total composition at any cruise-station
+threshold <- 5  # Threshold in percent
+
+# Find species that exceed the threshold at least once across all stations
+dominant_species <- rownames(copepod_data)[apply(copepod_data, 1, function(x) any(x >= threshold))]
+```
+
+```{r}
+library(vegan)
+library(ggplot2)
+
+# 1. 選 dominant species 的密度資料（轉置，因為 vegan 要樣區在列，物種在欄）
+dom_density <- t(all_species_density[dominant_species, ])
+
+# 2. 載入環境資料（請替換為正確檔名）
+library(readxl)
+
+# 讀入資料並轉成 data.frame
+envi_data <- as.data.frame(read_excel("C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls"))
+
+# 設定 rownames
+rownames(envi_data) <- envi_data$station
+
+# 移除 station 欄
+env_data <- envi_data[, -which(names(envi_data) == "station")]
+```
+
+```{r}
+# 執行 DCA
+dca_result <- decorana(dom_density)
+
+# 取得第一軸梯度長度（axis 1）
+gradient_length <- dca_result$rproj[,1]  # 這是樣區在第一軸上的位置（不是 gradient length）
+
+summary(gradient_length)
+
+# 真正的 gradient length 是 axis 1 的 "length"，如下方式取得：
+gradient_length_val <- max(gradient_length)
+cat("DCA 第一軸梯度長度 =", gradient_length_val, "\n")
+
+# 判斷使用哪個排序方法
+if (gradient_length_val > 4) {
+  cat("建議使用 CCA（物種響應為非線性）\n")
+} else if (gradient_length_val < 3) {
+  cat("建議使用 RDA（物種響應為線性）\n")
+} else {
+  cat("梯度長度介於 3 到 4，CCA 或 RDA 均可考慮\n")
+}
+
+```
+
+
+
+```{r}
+
+
+# 做排序分析：先看是用 RDA 還是 CCA（這裡用 CCA，因為生態資料常為非常態）
+ord_result <- cca(dom_density ~ ., data = env_data)
+plot(ord_result, scaling = 1)
+
+summary(ord_result)
+
+# 畫圖：Scaling 1 與 Scaling 2 比較
+# Scaling I（物種為焦點）
+plot(ord_result, scaling = 1, main = "CCA - Scaling I")
+# Scaling II（樣區為焦點）
+plot(ord_result, scaling = 2, main = "CCA - Scaling II")
+```
+
+
+```{r}
+# 顯著性檢定（整體解釋力）
+anova(ord_result)
+
+# 檢定各環境變數的貢獻
+anova(ord_result, by = "term")
+
+```
+
+The constrained ordination analysis (CCA) showed that the 11 selected environmental variables significantly explained the variation in dominant copepod species composition (p = 0.001, permutation test). The model’s total Chi-square was 1.31, with a residual of 0.64, indicating a strong explanatory power of environmental gradients.
+
+Among the variables, Temperature was the most influential (Chi-square = 0.47, p = 0.001), followed by Fluorescence and CopepodDensity, both showing significant contributions (p < 0.01). In contrast, variables like Salinity, maximum Temperature, and FishDensity were not statistically significant.
+
+In the Scaling I plot (species-focused), several dominant species were distributed along the gradients of temperature and fluorescence, suggesting strong species-environment associations. In the Scaling II plot (site-focused), the ordination revealed that site distribution patterns correlated with environmental variation, with clear clustering along hydrological gradients.
+
+Overall, temperature and nutrient-related conditions (as indicated by fluorescence) were key factors influencing copepod community structure, demonstrating the tight coupling between environmental gradients and species composition.
+

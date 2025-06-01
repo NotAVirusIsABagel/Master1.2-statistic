@@ -1,0 +1,89 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+# 確保所有列都是數字，將無法轉換的資料替換為 NA
+copepod_data[] <- lapply(copepod_data, function(x) {
+  x_num <- as.numeric(x)  # 將資料轉換為數字
+  x_num[is.na(x_num)] <- 0  # 將 NA 替換為 0
+  return(x_num)
+})
+
+# 將所有數據除以 100
+copepod_data[] <- lapply(copepod_data, function(x) x / 100)
+
+```
+
+```{r}
+
+```{r}
+
+density1 <- copepod_density["Oncaea venusta", ] 
+density2 <- copepod_density["Canthocalanus pauper", ]  
+
+
+diff_bootstrap <- numeric(B)
+for (i in 1:B) {
+  idx <- floor(runif(n, min = 1, max = n + 1))
+  diff_bootstrap[i] <- mean(density1[idx]) - mean(density2[idx])
+}
+
+CI_percentile_diff <- quantile(diff_bootstrap, probs = c(0.025, 0.975))
+
+# BCa method (similar calculation for a_hat, omitted detailed derivation)
+z0_diff <- qnorm(mean(diff_bootstrap < mean(density1) - mean(density2)))
+a_hat_diff <- sum((diff_bootstrap - mean(diff_bootstrap))^3) / (6 * sum((diff_bootstrap - mean(diff_bootstrap))^2)^(3/2))
+alpha1_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.025)) / (1 - a_hat_diff * (z0_diff + qnorm(0.025))))
+alpha2_BCa_diff <- pnorm(z0_diff + (z0_diff + qnorm(0.975)) / (1 - a_hat_diff * (z0_diff + qnorm(0.975))))
+CI_BCa_diff <- quantile(diff_bootstrap, probs = c(alpha1_BCa_diff, alpha2_BCa_diff))
+
+# Display results
+list(
+  CI_percentile_diff = CI_percentile_diff,
+  CI_BCa_diff = CI_BCa_diff
+)
+
+
+
+```
+```
+
+```{r}
+```{r}
+# set column names）
+colnames(copepod_data) <- c("p1", "p3", "p4", "p6", "p13", "p16", "p19", "p21", "p23", "p25", "s18", "s19", "s20", "s22", "s23", "s25", "s27", "s29", "sA", "sB", "sC", "sD", "sE", "sF", "sG", "w22", "w23", "w25", "w27", "w29", "wA", "wB", "wC", "wD")
+
+library(dplyr)
+copepod_data <- dplyr::mutate_if(copepod_data, is.numeric, function(x) x / 100)
+
+#Set the species names from the species_list as the row names of copepod_data, so that each row corresponds to a species name instead of the default 123.
+copepod_data <- copepod_data[-1, ]  # delete 1st row
+species_list <- species_list[-length(species_list)]
+
+rownames(copepod_data) <- species_list
+
+copepod_data[] <- lapply(copepod_data, as.numeric) #change character into number so that we can use lapply
+
+
+# count density
+#sweep(data for manipulation, 1 for rows; 2 for columns,function to apply ex.* for multiply )
+# make sure cop_density$V1 correctly matches each column
+copepod_density <- apply(copepod_data, 2, function(x) x * rep(cop_density$V1/100, length.out = length(x)))
+```
+```
+

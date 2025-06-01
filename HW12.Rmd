@@ -1,0 +1,98 @@
+---
+title: "HW12"
+author: "Annie"
+date: "2025-05-14"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Please estimate the four parameters (L∞, K, t0, and σ2) using MLE method for the average length-at-age of female Pacific hake considering a multiplicative error model (log-normal distribution).
+
+```{r}
+# Sample data (replace with your actual Pacific hake data)
+hake_data <- data.frame(
+  age = c(1.5, 2, 3.3, 4.3, 5.3, 6.3, 7.3, 8.3, 9.3, 10.3, 11.3, 12.3, 14),
+  length = c(15.4, 28.03, 42.18, 46.2, 50.23, 54.26, 51.82, 57.27, 56.98, 58.93, 58.55, 59.91, 59.83)
+)
+```
+
+
+```{r}
+# Define the von Bertalanffy growth function
+vb_func <- function(t, Linf, K, t0) {
+  Linf * (1 - exp(-K * (t - t0)))
+}
+
+# Define the negative log-likelihood function
+nll_lognormal_vb <- function(params, data) {
+  Linf <- params[1]
+  K <- params[2]
+  t0 <- params[3]
+  sigma2 <- params[4]
+
+  age <- data$age
+  length_obs <- data$length
+  length_pred <- vb_func(age, Linf, K, t0)
+
+  # Check for invalid parameter or prediction
+  if (Linf <= 0 || K <= 0 || sigma2 <= 0 || any(length_pred <= 0)) {
+    return(Inf)
+  }
+
+  n <- length(length_obs)
+  sigma <- sqrt(sigma2)
+  residuals <- log(length_obs) - log(length_pred)
+
+  # NLL without log(2*pi) term
+  nll <- n * log(sigma) + sum(residuals^2) / (2 * sigma^2)
+  return(nll)
+}
+
+
+# Initial guesses for the parameters
+initial_params <- c(Linf = max(hake_data$length) * 1.2, K = 0.1, t0 = -1, sigma2 = 0.05)
+
+# Perform the optimization using optim()
+#Automatically find a set of parameters (Linf, K, t0, and σ²) that make the lognormal model best fit the observed age and length data of Pacific hake.
+
+fit <- optim(par = initial_params,
+             fn = nll_lognormal_vb,
+             data = hake_data,
+             method = "L-BFGS-B",
+             lower = c(10, 0.0001, -10, 0.00001),  # min bounds
+             upper = c(100, 1, 10, 2))             # max bounds
+
+
+# Extract the estimated parameters
+estimated_Linf <- fit$par["Linf"]
+estimated_K <- fit$par["K"]
+estimated_t0 <- fit$par["t0"]
+estimated_sigma2 <- fit$par["sigma2"]
+
+# Print the results
+cat("Estimated parameters:\n")
+cat("L_infinity (Linf):", estimated_Linf, "\n")
+cat("Growth rate (K):", estimated_K, "\n")
+cat("Theoretical age at zero length (t0):", estimated_t0, "\n")
+cat("Variance of the log-normal error (sigma^2):", estimated_sigma2, "\n")
+
+# You can also look at the convergence of the optimization
+cat("Convergence code:", fit$convergence, "\n")
+cat("Message:", fit$message, "\n")
+```
+
+Optional: Plot the data and the fitted growth curve
+```{r}
+# Plot observed vs predicted
+plot(hake_data$age, hake_data$length, pch = 19, col = "blue", main = "Observed vs. Fitted", xlab = "Age", ylab = "Length")
+lines(hake_data$age, vb_func(hake_data$age, estimated_Linf, estimated_K, estimated_t0), col = "red", lwd = 2)
+legend("bottomright", legend = c("Observed", "Fitted"), col = c("blue", "red"), pch = c(19, NA), lty = c(NA, 1))
+
+
+```
+

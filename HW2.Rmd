@@ -3,9 +3,9 @@ title: "HW2"
 author: "Annie"
 date: "2025-02-27"
 output:
-  pdf_document: default
-  html_document: default
   word_document: default
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -16,10 +16,17 @@ Homework2
 
 1a. Generate 10000 random numbers from Gaussian distribution with mean=20 and variance =10, and plot the distribution.
 ```{r}
-set.seed(123) #not necessary here#ensure that the sequence of random numbers generated is always the same 
-gaussian_numbers <- rnorm(10000, mean = 20, sd = sqrt(10))
-gaussian_numbers
-hist(gaussian_numbers, breaks = 50, col = "skyblue", main = "Gaussian Distribution", xlab = "Value", probability = TRUE)
+
+# Generate standard normal variables (mean = 0, sd = 1)
+standard_normal <- rnorm(10000)
+
+# Transform to have mean = 20 and variance = 10
+gaussian_numbers <- standard_normal * sqrt(10) + 20  
+
+# Plot histogram
+hist(gaussian_numbers, breaks = 50, col = "skyblue", 
+     main = "Gaussian Distribution", xlab = "Value", probability = TRUE)
+
 #probability: Transform the Y-axis into probability density, ensuring that the total area of the histogram equals 1.
 #probability=TRUE: Density; probability=FALSE: frequency
 ```
@@ -34,33 +41,64 @@ The binomial distribution is discrete and may exhibit more obvious peaks.
 
 ```{r}
 binomial_numbers <- rbinom(10000, size = 40, prob = 0.5)#prob= 0.5: probability of success per trial is 0.5(like tossing coins)
-binomial_numbers
 hist(binomial_numbers, breaks = 50, col = "lightcoral", main = "Binomial Distribution", xlab = "Value", probability = TRUE)
 ```
 Make a program that can select our candidates for presentation next week. 
 This program should select randomly but avoid selecting the numbers that had been selected before. (hint: uniform distribution, loop, and if statements.) 
 ```{r}
-
-students <- 1:34
-
+# Define total students
+total_students <- 1:34
 students_per_class <- 2
+file_name <- "selected_students.txt"  # File to store selected students
 
-num_classes <- length(students) / students_per_class #how many classes do we have
-
-for (i in 1:num_classes) {
-  
-  selected <- sample(students, students_per_class) 
-  #select 2 students 
-  
-  students <- students[!students %in% selected] 
-  #delete students that were selected 
-  #!students %in% selected:this will return TRUE/FALSE, indicating which numbers in "students" haven't appeared in "selected"
-  #students[...]: keep TRUE(haven't been selected) only, delete FALSE
-  
-  cat("第", i, "堂課報告的同學: ", selected, "\n")
-  #`cat(): used to output text and variable values. It does not automatically add a newline, so you need to manually include `   "\n"`.
-  
+# Function to load previously selected students
+load_selected_students <- function() {
+  if (file.exists(file_name)) {
+    selected <- scan(file_name, quiet = TRUE)
+    return(selected)
+  } else {
+    return(c())  # Return empty if file doesn't exist
+  }
 }
+
+# Function to save selected students
+save_selected_students <- function(selected_students) {
+  write(selected_students, file = file_name, ncolumns = length(selected_students))
+}
+
+# Function to select students
+select_students <- function() {
+  selected_students <- load_selected_students()  # Load previous selections
+  
+  # If all students have been selected, stop selecting
+  if (length(selected_students) == length(total_students)) {
+    cat("All students have been selected.\n")
+    return(FALSE)  # Stop selection
+  }
+  
+  # Get remaining students
+  remaining_students <- setdiff(total_students, selected_students)
+  
+  # Shuffle remaining students
+  random_index <- order(runif(length(remaining_students)))  # Random order
+  remaining_students <- remaining_students[random_index]
+  
+  # Select the first `students_per_class` students
+  selected <- remaining_students[1:students_per_class]
+  
+  # Update and save selected students
+  selected_students <- c(selected_students, selected)
+  save_selected_students(selected_students)
+  
+  cat("Selected students:", selected, "\n")
+  
+  return(TRUE)  # Continue selection
+}
+
+# Run the selection
+select_students()
+
+
 
 ```
 

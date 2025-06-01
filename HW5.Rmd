@@ -1,0 +1,133 @@
+---
+title: "HW5"
+author: "Annie"
+date: "2025-03-20"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. Compute the regression coefficients for fish = b0+b1*copepod and use randomization method to generate null distribution of b1 and test whether b1 is significantly different from null (with randomization 5000 times). Report your p-value. 
+```{r}
+library(readxl)
+
+# Read the Excel file
+data <- read_excel("C:/Users/User/Desktop/Master 1.2/R/HW/enviANDdensity.xls")
+
+# Extract the required columns and rename them for convenience
+fish <- data[["FishDensity (ind./1000m3)"]]
+copepod <- data[["CopepodDensity ind./m3"]]
+```
+
+```{r}
+# Compute original regression coefficient
+lm_original <- lm(fish ~ copepod)
+b1_original <- coef(lm_original)[2]
+n <- length(fish)
+
+# Define shuffle function using order(runif(n))
+fisher_yates_shuffle <- function(n) {
+  return(order(runif(n)))  # Generate a random order of indices
+}
+
+# Define randomization function
+randomization_test <- function(data, indices) {
+  fish_shuffled <- data$fish[indices]  # Shuffle fish values using indices
+  model <- lm(fish_shuffled ~ data$copepod)
+  return(coef(model)[2])
+}
+
+# Prepare data frame for randomization
+set.seed(123)  # Set random seed for reproducibility
+data_for_perm <- data.frame(fish = fish, copepod = copepod)
+
+# Perform 5000 randomizations
+perm_results <- replicate(5000, {
+  shuffled_indices <- fisher_yates_shuffle(length(fish))  # Use order(runif(n))
+  randomization_test(data_for_perm, shuffled_indices)
+})
+
+# Compute p-value (two-tailed test)
+p_value <- mean(abs(perm_results) >= abs(b1_original))
+
+# Output results
+print(paste("Original regression coefficient b1:", b1_original))
+if (p_value < 0.05) {
+  print("p-value: < 0.05")
+} else {
+  print(paste("p-value:", p_value))
+}
+
+```
+
+2. Randomization test whether significant difference exists between the density of Oncaea Venusta and Canthocalanus pauper. (Assume all data are independent and use all 34 stations.) Report your pvalue. 
+NOTE: no built-in randomization routines are allowed!
+
+Extract density
+```{r}
+copepod_data <- read.table("copepod_composition.txt", header = TRUE)
+cop_density <- read.table("cop_density.txt", header = TRUE)
+species_list <- read.table("copepodSPlist.txt", fill=T, sep = "\n")
+
+row.names(copepod_data) <- species_list$V1
+
+Oncaea <- copepod_data ["Oncaea venusta", ]/100
+Pauper <- copepod_data ["Canthocalanus pauper", ]/100
+
+Oncaea_new <- matrix(0, nrow = 1 , ncol = length(species_list$V1))
+row.names(Oncaea_new) <- "Oncaea venusta"
+for( i in 1: length(cop_density$X1119)) {
+  Oncaea_new[ ,i] <- Oncaea[, i]*cop_density[i,]
+  }
+  
+Pauper_new <- matrix(0, nrow = 1 , ncol = length(species_list$V1))
+row.names(Pauper_new) <- "Canthocalanus pauper"
+for( i in 1:length(cop_density$X1119)) {
+  Pauper_new[ ,i] <- Pauper[, i]*cop_density[i,]
+}
+
+```
+
+```{r}
+set.seed(123)  # Set the seed for reproducibility
+
+# Calculate the observed paired difference
+# We calculate the density difference between Oncaea and Pauper at each station and then take the mean
+observed_diff <- mean(Oncaea_new - Pauper_new)
+
+# Step 2: Number of randomizations
+n_randomizations <- 5000
+random_diffs <- numeric(n_randomizations)
+
+# Step 3: Perform the randomization test
+for (i in 1:n_randomizations) {
+  
+  # Step 3.1: Combine the densities of Oncaea and Pauper into one vector
+  combined_densities <- c(Oncaea_new, Pauper_new)
+  
+  # Step 3.2: Generate random numbers and order them
+  random_numbers <- runif(length(combined_densities))  # Generate 362 numbers that ranged between 0&1
+  random_index <- order(random_numbers)  # Order random numbers from big to small
+  
+  # Step 3.3: Assign the shuffled densities back to Oncaea and Pauper
+  shuffled_Oncaea <- combined_densities[random_index[1:length(Oncaea_new)]] #Select the first length(Oncaea_new)(182!) elements from the random_index vector, so that the corresponding values at these positions can be chosen from combined_densities.
+  shuffled_Pauper <- combined_densities[random_index[(length(Oncaea_new) + 1):length(combined_densities)]]#select number 183~362 elements from the random_index vector
+  
+  # Step 3.4: Calculate the difference after randomization
+  random_diffs[i] <- mean(shuffled_Oncaea - shuffled_Pauper)
+}
+
+# Step 4: Calculate the p-value
+# The p-value is the proportion of randomized differences that are as extreme or more extreme than the observed difference
+p_value <- mean(abs(random_diffs) >= abs(observed_diff))
+
+# Output the p-value
+p_value
+
+```
+把所有密度混在一起，然後再分給Oncaea和Pauper，然後再看新的Oncaea還有Pauper有沒有差很多已決定whether significant difference exists between the density of Oncaea Venusta and Canthocalanus pauper!
+
